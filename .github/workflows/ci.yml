@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [18.x, 20.x]
+        node: [20.x]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -88,8 +88,7 @@ jobs:
             *.txt
           if-no-files-found: ignore
 
-      - name: Upload build artifact (primary Node only)
-        if: matrix.node == '20.x'
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: build-out

@@ -17,6 +17,7 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 
 ### Changed
 - README now includes release process guidance, test instructions, and notes about the VSCE_PAT secret.
+ - Raised development / CI minimum Node version to 20 (dropped 18.x from CI matrix) due to upstream dependency engine requirements.
 
 ### Internal
 - Working tree cleanliness guard in release workflow (fails fast if uncommitted changes exist).
