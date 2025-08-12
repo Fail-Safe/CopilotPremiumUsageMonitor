@@ -2,7 +2,7 @@
   "name": "copilot-premium-usage-monitor",
   "displayName": "Copilot Premium Usage Monitor",
   "description": "Monitor usage and budget for Copilot Premium Request SKU from VS Code.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "fail-safe",
   "license": "MIT",
   "icon": "media/icon.png",

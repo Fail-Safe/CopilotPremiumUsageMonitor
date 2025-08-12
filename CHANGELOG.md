@@ -12,6 +12,11 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 ### Changed
 - Updated extension icon (icon.png) to use a fully transparent background for better appearance in light/dark themes.
 
+## [0.4.1] - 2025-08-12
+### Changed
+- Refined documentation: clarified persistent warning banner and transparent icon background guidance.
+- Minor internal webview cleanup (removed codicon text preview logic from invalid icon warning banner).
+
 ## [0.4.0] - 2025-08-12
 ### Added
 - Setting: `useThemeStatusColor` to improve contrast by using the theme's default status bar foreground except when warning/danger/error states apply.
