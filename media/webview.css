@@ -1,0 +1,135 @@
+/* Gray out summary when error */
+.summary-error {
+    opacity: 0.4;
+    pointer-events: none;
+    filter: grayscale(1);
+}
+
+/* Error banner styles */
+#error-banner-container {
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto 16px auto;
+    position: relative;
+    z-index: 10000;
+}
+
+#error-banner {
+    display: block !important;
+    background: var(--vscode-editorError-background, #fdd);
+    color: var(--vscode-editorError-foreground, #a00);
+    padding: 12px 18px;
+    margin-bottom: 12px;
+    border-radius: 6px;
+    font-weight: bold;
+    font-size: 15px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
+    border: 1px solid var(--vscode-editorError-foreground, #a00);
+    z-index: 10001;
+}
+
+body {
+    font-family: var(--vscode-font-family);
+    color: var(--vscode-foreground);
+    padding: 12px;
+}
+
+#app {
+    max-width: 640px;
+}
+
+h2 {
+    margin-top: 0;
+}
+
+.meter {
+    height: 14px;
+    background: var(--vscode-editor-inactiveSelectionBackground);
+    border-radius: 7px;
+    overflow: hidden;
+}
+
+.fill {
+    height: 100%;
+    transition: width .3s ease;
+}
+
+.stats {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin: 8px 0 8px;
+    opacity: .9;
+}
+
+.stats-left {
+    display: flex;
+    gap: 16px;
+}
+
+.controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* Align the Mode selector to the right of the buttons row */
+.controls-row {
+    justify-content: space-between;
+    margin-top: 8px;
+}
+
+.btn-group {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.right-group {
+    margin-left: auto;
+}
+
+.controls input {
+    width: 140px;
+}
+
+.note {
+    opacity: .8;
+    font-size: 12px;
+}
+
+.notice {
+    padding: 8px 10px;
+    border-radius: 4px;
+    margin: 8px 0;
+    font-size: 12px;
+}
+
+.notice.info {
+    background: color-mix(in oklab, var(--vscode-editorInfo-foreground) 10%, transparent);
+    border: 1px solid var(--vscode-editorInfo-foreground);
+}
+
+.notice.warn {
+    background: color-mix(in oklab, var(--vscode-editorWarning-foreground) 10%, transparent);
+    border: 1px solid var(--vscode-editorWarning-foreground);
+}
+
+/* VS Code themed buttons */
+.btn {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: 1px solid transparent;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.btn:focus {
+    outline: 1px solid var(--vscode-focusBorder);
+    outline-offset: 1px;
+}

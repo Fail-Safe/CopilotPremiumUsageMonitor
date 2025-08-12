@@ -1,0 +1,143 @@
+{
+  "name": "copilot-premium-usage-monitor",
+  "displayName": "Copilot Premium Usage Monitor",
+  "description": "Monitor usage and budget for Copilot Premium Request SKU from VS Code.",
+  "version": "0.0.1",
+  "publisher": "fail-safe",
+  "engines": {
+    "vscode": "^1.86.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cpumContainer",
+          "title": "Copilot Usage",
+          "icon": "media/icon.svg",
+          "when": "cpum.enableSidebar"
+        }
+      ]
+    },
+    "views": {
+      "cpumContainer": [
+        {
+          "id": "copilotPremiumUsageMonitor.sidebar",
+          "name": "Usage",
+          "icon": "media/icon.svg",
+          "when": "cpum.enableSidebar"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "copilotPremiumUsageMonitor.openPanel",
+        "title": "Copilot Premium Usage Monitor: Open"
+      },
+      {
+        "command": "copilotPremiumUsageMonitor.signIn",
+        "title": "Copilot Premium Usage Monitor: Sign in to GitHub"
+      },
+      {
+        "command": "copilotPremiumUsageMonitor.configureOrg",
+        "title": "Copilot Premium Usage Monitor: Choose Organization"
+      },
+      {
+        "command": "copilotPremiumUsageMonitor.enableFirstRunNotice",
+        "title": "Copilot Premium Usage Monitor: Re-enable First-run Tip"
+      },
+      {
+        "command": "copilotPremiumUsageMonitor.manage",
+        "title": "Copilot Premium Usage Monitor: Manage"
+      }
+    ],
+    "configuration": {
+      "title": "Copilot Premium Usage Monitor",
+      "properties": {
+        "copilotPremiumUsageMonitor.warnAtPercent": {
+          "type": "number",
+          "default": 80,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Warn color threshold (percent used)."
+        },
+        "copilotPremiumUsageMonitor.dangerAtPercent": {
+          "type": "number",
+          "default": 100,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Danger color threshold (percent used)."
+        },
+        "copilotPremiumUsageMonitor.refreshIntervalMinutes": {
+          "type": "number",
+          "default": 15,
+          "minimum": 5,
+          "maximum": 1440,
+          "description": "Auto-refresh interval in minutes for personal usage. Minimum 5 minutes."
+        },
+        "copilotPremiumUsageMonitor.mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "personal",
+            "org"
+          ],
+          "default": "auto",
+          "description": "Data source mode: auto (Org if set, otherwise personal), personal (Enhanced Billing), or Org (Copilot metrics)."
+        },
+        "copilotPremiumUsageMonitor.budget": {
+          "type": "number",
+          "default": 10,
+          "description": "Monthly budget in USD for Copilot Premium Request SKU. (Find value here: https://github.com/settings/billing/budgets)",
+          "minimum": 0
+        },
+        "copilotPremiumUsageMonitor.org": {
+          "type": "string",
+          "default": "",
+          "description": "GitHub Organization login (optional). Leave blank for personal account."
+        },
+        "copilotPremiumUsageMonitor.token": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "GitHub Personal Access Token (classic or fine-grained) with `Plan: read-only` scope. Leave blank to sign in via the GitHub Authentication extension.",
+          "scope": "machine-overridable"
+        },
+        "copilotPremiumUsageMonitor.disableFirstRunTips": {
+          "type": "boolean",
+          "default": false,
+          "description": "Permanently disable the first-run tip banner in the panel."
+        },
+        "copilotPremiumUsageMonitor.enableSidebar": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the Copilot Usage Sidebar view (off by default)."
+        }
+      }
+    }
+  },
+  "activationEvents": [
+    "*",
+    "onStartupFinished"
+  ],
+  "scripts": {
+    "vscode:prepublish": "tsc -p ./",
+    "compile": "tsc -watch -p ./",
+    "lint": "eslint src --ext .ts",
+    "test": "node --test --test-reporter=spec out/test/**/*.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "@types/vscode": "^1.86.0",
+    "esbuild": "^0.21.5",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@octokit/core": "^7.0.3",
+    "@octokit/rest": "^22.0.0",
+    "universal-user-agent": "^7.0.3",
+    "vscode-nls": "^5.2.0"
+  }
+}
