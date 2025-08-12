@@ -9,13 +9,16 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 - Basic activation test harness.
 - CI workflow for build and packaging.
 - Optional command to force refresh ignoring cache.
+<!-- No unreleased changes yet -->
+
+## [0.4.2] - 2025-08-12
 ### Changed
 - Updated extension icon (icon.png) to use a fully transparent background for better appearance in light/dark themes.
-
-## [0.4.1] - 2025-08-12
-### Changed
 - Refined documentation: clarified persistent warning banner and transparent icon background guidance.
 - Minor internal webview cleanup (removed codicon text preview logic from invalid icon warning banner).
+## [0.4.1] - 2025-08-12
+### Changed
+- Version superseded by 0.4.2 the same day; no user‑visible changes retained.
 
 ## [0.4.0] - 2025-08-12
 ### Added

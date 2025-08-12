@@ -14,10 +14,6 @@ Monitor your GitHub Copilot Premium usage and spend against a monthly budget in 
 |-----------|----------------------|
 | ![Panel](./media/screenshot-panel.png) | ![Status Bar](./media/screenshot-statusbar.png) |
 
-### Icon
-The extension icon (`media/icon.png`) uses a transparent background to blend with both light and dark Marketplace themes. If you replace it, prefer a square PNG (128×128 or 256×256) with transparency (no solid white/black box) and avoid heavy outer padding so it renders crisply at smaller sizes.
-
-
 ## Features
 
 - Budget meter (panel + status bar)
@@ -55,8 +51,8 @@ code --install-extension fail-safe.copilot-premium-usage-monitor
 - copilotPremiumUsageMonitor.refreshIntervalMinutes — default 15 (min 5)
 - copilotPremiumUsageMonitor.statusBarAlignment — left | right (default left)
 - copilotPremiumUsageMonitor.showLogOnError — auto-open log channel on first error (default false)
- - copilotPremiumUsageMonitor.useThemeStatusColor — use theme default foreground for normal state (default true)
- - copilotPremiumUsageMonitor.statusBarIconOverride — optional Codicon (e.g. `graph`, `pulse`, `rocket`, `dashboard`). Invalid / unknown names: automatic icon is used and a persistent (until fixed) yellow warning banner + one‑time log message appears. Full list: https://microsoft.github.io/vscode-codicons/dist/codicon.html
+- copilotPremiumUsageMonitor.useThemeStatusColor — use theme default foreground for normal state (default true)
+- copilotPremiumUsageMonitor.statusBarIconOverride — optional Codicon (e.g. `graph`, `pulse`, `rocket`, `dashboard`). Invalid / unknown names: automatic icon is used and a persistent (until fixed) yellow warning banner + one‑time log message appears. Full list: https://microsoft.github.io/vscode-codicons/dist/codicon.html
 
 ## Settings Sync
 
@@ -79,7 +75,7 @@ code --install-extension fail-safe.copilot-premium-usage-monitor
 - No orgs listed: Ensure read:org and membership; org may restrict visibility.
 - Need more detail? Run "Copilot Premium Usage Monitor: Show Logs" or enable `copilotPremiumUsageMonitor.showLogOnError` to automatically open the log on the first error.
 - Need diagnostics: Run the command "Copilot Premium Usage Monitor: Show Logs".
- - Custom icon not applied: Check the panel warning banner and Output Channel for a message about `statusBarIconOverride` (unknown or malformed). Use a valid Codicon name from the list linked in settings.
+- Custom icon not applied: Check the panel warning banner and Output Channel for a message about `statusBarIconOverride` (unknown or malformed). Use a valid Codicon name from the list linked in settings.
 
 ## Running locally
 
