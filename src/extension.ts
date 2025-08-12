@@ -136,7 +136,7 @@ class UsagePanel {
 			if (UsagePanel.currentPanel) {
 				(UsagePanel.currentPanel as any).panel?.webview?.postMessage(data);
 			}
-		} catch { }
+		} catch { /* noop */ }
 	}
 
 	static async ensureGitHubSession(): Promise<vscode.AuthenticationSession | undefined> {
@@ -195,7 +195,7 @@ class UsagePanel {
 					try {
 						const s = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: false });
 						hasSession = !!s;
-					} catch { }
+					} catch { /* noop */ }
 					const hasPat = !!((cfgNew.get('token') as string | undefined)?.trim());
 					this.post({
 						type: 'config',
@@ -220,13 +220,13 @@ class UsagePanel {
 					try {
 						await vscode.commands.executeCommand('markdown.showPreview', readme);
 					} catch {
-						try { await vscode.window.showTextDocument(readme); } catch { }
+						try { await vscode.window.showTextDocument(readme); } catch { /* noop */ }
 					}
 					break;
 				}
 				case 'dismissFirstRun': {
 					await this.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', true);
-					try { await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', true, vscode.ConfigurationTarget.Global); } catch { }
+					try { await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', true, vscode.ConfigurationTarget.Global); } catch { /* noop */ }
 					break;
 				}
 				case 'refresh': {
@@ -259,8 +259,8 @@ class UsagePanel {
 							const month = now.getUTCMonth() + 1;
 							const billing = await fetchUserBillingUsage(login, token, { year, month });
 							// Clear stored last error BEFORE updating spend so status bar removes stale tag
-							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { }
-							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { }
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { /* noop */ }
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { /* noop */ }
 							await this.setSpend(billing.totalNetAmount); // triggers status bar update
 							this.post({ type: 'billing', billing });
 							// Clear previous error state if any (webview)
@@ -293,8 +293,8 @@ class UsagePanel {
 					try {
 						const metrics = await fetchOrgCopilotMetrics(org!, token, {});
 						// Clear error first so status bar update (below) reflects non-stale state
-						try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { }
-						try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { }
+						try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { /* noop */ }
+						try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { /* noop */ }
 						this.post({ type: 'metrics', metrics });
 						this.post({ type: 'clearError' });
 						updateStatusBar(); // spend may not change, but remove stale tag/icon
@@ -326,7 +326,7 @@ class UsagePanel {
 				}
 				case 'openExternal': {
 					if (typeof message.url === 'string' && message.url.startsWith('http')) {
-						try { await vscode.env.openExternal(vscode.Uri.parse(message.url)); } catch { }
+						try { await vscode.env.openExternal(vscode.Uri.parse(message.url)); } catch { /* noop */ }
 					}
 					break;
 				}
@@ -342,7 +342,7 @@ class UsagePanel {
 		this.panel.dispose();
 		while (this.disposables.length) {
 			const d = this.disposables.pop();
-			try { d?.dispose(); } catch { }
+			try { d?.dispose(); } catch { /* noop */ }
 		}
 	}
 
@@ -474,7 +474,7 @@ function maybeAutoOpenLog() {
 		const log = getLog();
 		log.show(true);
 		log.appendLine('[AutoOpen] Log channel opened due to first error (showLogOnError=true).');
-	} catch { }
+	} catch { /* noop */ }
 }
 // Sidebar feature removed in v0.2.0 (sidebarProvider eliminated)
 let autoRefreshTimer: NodeJS.Timeout | undefined;
@@ -487,7 +487,7 @@ function initStatusBar(context: vscode.ExtensionContext) {
 		const desiredAlignment = alignSetting === 'right' ? vscode.StatusBarAlignment.Right : vscode.StatusBarAlignment.Left;
 		// Recreate if alignment changed
 		if (statusItem && statusItem.alignment !== desiredAlignment) {
-			try { statusItem.dispose(); } catch { }
+			try { statusItem.dispose(); } catch { /* noop */ }
 			statusItem = undefined;
 		}
 		if (!statusItem) {
@@ -527,7 +527,7 @@ function updateStatusBar() {
 		try {
 			const { mode } = getBudgetSpendAndMode();
 			if (mode === 'personal') baseIcon = 'account';
-		} catch { }
+		} catch { /* noop */ }
 		// Determine stale/error state from last stored sync error
 		const lastError = extCtx.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
 		let icon = baseIcon;
@@ -550,14 +550,14 @@ function updateStatusBar() {
 							if (message !== lastIconOverrideWarningMessage) {
 								getLog().appendLine(`[CopilotPremiumUsageMonitor] statusBarIconOverride '${candidate}' not in known codicon shortlist. Using default icon. See: https://microsoft.github.io/vscode-codicons/dist/codicon.html`);
 								UsagePanel.postMessage({ type: 'iconOverrideWarning', message });
-								try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', message); } catch { }
+								try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', message); } catch { /* noop */ }
 								lastIconOverrideWarningMessage = message;
 							}
 						} else {
 							icon = candidate; // accept override
 							if (lastIconOverrideWarningMessage) {
 								UsagePanel.postMessage({ type: 'clearIconOverrideWarning' });
-								try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', undefined); } catch { }
+								try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', undefined); } catch { /* noop */ }
 								lastIconOverrideWarningMessage = undefined;
 							}
 						}
@@ -566,7 +566,7 @@ function updateStatusBar() {
 						if (message !== lastIconOverrideWarningMessage) {
 							getLog().appendLine(`[CopilotPremiumUsageMonitor] statusBarIconOverride value '${overrideRaw}' is not a valid codicon identifier (must be [a-z0-9-], length >=2). Using default icon.`);
 							UsagePanel.postMessage({ type: 'iconOverrideWarning', message });
-							try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', message); } catch { }
+							try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', message); } catch { /* noop */ }
 							lastIconOverrideWarningMessage = message;
 						}
 					}
@@ -574,11 +574,11 @@ function updateStatusBar() {
 					// Override cleared -> remove any stored warning & banner if present
 					if (lastIconOverrideWarningMessage) {
 						UsagePanel.postMessage({ type: 'clearIconOverrideWarning' });
-						try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', undefined); } catch { }
+						try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', undefined); } catch { /* noop */ }
 						lastIconOverrideWarningMessage = undefined;
 					}
 				}
-			} catch { /* ignore override errors */ }
+			} catch { /* noop */ }
 		}
 		let forcedColor: vscode.ThemeColor | undefined;
 		let staleTag = '';
@@ -672,10 +672,12 @@ function updateStatusBar() {
 						} else {
 							rel = 'just now';
 						}
-					} catch { }
+					} catch { /* noop */ }
 					const label = lastError ? localize('cpum.statusbar.lastSuccessfulSync', 'Last successful sync') : localize('cpum.statusbar.lastSync', 'Last sync');
-					md.appendMarkdown(`\n\n$(sync) ${label}: ${formatted} ${rel ? ` • ${rel}` : ''}`);
-				} catch { }
+					// Include timezone offset + IANA zone for clarity (uses tz & offsetStr to avoid unused vars)
+					const tzDisplay = tz ? ` ${tz}` : '';
+					md.appendMarkdown(`\n\n$(sync) ${label}: ${formatted} ${rel ? ` • ${rel}` : ''} (${offsetStr}${tzDisplay})`);
+				} catch { /* noop */ }
 			}
 		}
 		md.appendMarkdown(`\n\n$(gear) ${localize('cpum.statusbar.manageHint', 'Run "Copilot Premium Usage Monitor: Manage" to configure.')}`);
@@ -687,7 +689,7 @@ function updateStatusBar() {
 				const sanitized = lastError.replace(/`/g, '\u0060');
 				md.appendMarkdown(`\n\n$(warning) **${localize('cpum.statusbar.stale', 'Data may be stale')}**: ${sanitized}`);
 			}
-		} catch { /* ignore tooltip error enrichment */ }
+		} catch { /* noop */ }
 		statusItem.tooltip = md;
 		statusItem.show();
 	} catch (err) {
@@ -718,9 +720,9 @@ function startAutoRefresh() {
 	let minutes = Number(cfg.get('refreshIntervalMinutes') ?? 15);
 	if (!isFinite(minutes) || minutes <= 0) minutes = 15;
 	const ms = Math.max(5, Math.floor(minutes)) * 60 * 1000; // minimum 5 minutes
-	autoRefreshTimer = setInterval(() => performAutoRefresh().catch(() => { }), ms);
+	autoRefreshTimer = setInterval(() => performAutoRefresh().catch(() => { /* noop */ }), ms);
 	// Also perform one immediate refresh attempt non-interactively
-	performAutoRefresh().catch(() => { });
+	performAutoRefresh().catch(() => { /* noop */ });
 }
 
 function restartAutoRefresh() {
@@ -741,7 +743,7 @@ function startRelativeTimeTicker() {
 			if (!extCtx) return;
 			const ts = extCtx.globalState.get<number>('copilotPremiumUsageMonitor.lastSyncTimestamp');
 			if (ts) updateStatusBar();
-		} catch { }
+		} catch { /* noop */ }
 	}, 30000); // 30s cadence
 }
 
@@ -770,8 +772,8 @@ async function performAutoRefresh() {
 			const year = now.getUTCFullYear();
 			const month = now.getUTCMonth() + 1;
 			const billing = await fetchUserBillingUsage(login, token, { year, month });
-			try { await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { }
-			try { await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { }
+			try { await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { /* noop */ }
+			try { await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { /* noop */ }
 			await extCtx.globalState.update('copilotPremiumUsageMonitor.currentSpend', billing.totalNetAmount);
 			updateStatusBar(); // will drop stale tag if present
 		} catch {
@@ -894,7 +896,7 @@ export function _test_forceStatusBarUpdate() {
 			initStatusBar(extCtx);
 		}
 		updateStatusBar();
-	} catch { }
+	} catch { /* noop */ }
 }
 export async function _test_setSpendAndUpdate(spend: number, budget?: number) {
 	if (!extCtx) return;
@@ -904,5 +906,5 @@ export async function _test_setSpendAndUpdate(spend: number, budget?: number) {
 			await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('budget', budget, vscode.ConfigurationTarget.Global);
 		}
 		updateStatusBar();
-	} catch { /* ignore in tests */ }
+	} catch { /* noop */ }
 }
