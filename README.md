@@ -52,7 +52,8 @@ code --install-extension fail-safe.copilot-premium-usage-monitor
 - copilotPremiumUsageMonitor.refreshIntervalMinutes — default 15 (min 5)
 - copilotPremiumUsageMonitor.statusBarAlignment — left | right (default left)
 - copilotPremiumUsageMonitor.showLogOnError — auto-open log channel on first error (default false)
-- copilotPremiumUsageMonitor.showLogOnError — auto-open the extension log Output Channel on the first error (default false)
+ - copilotPremiumUsageMonitor.useThemeStatusColor — use theme default foreground for normal state (default true)
+ - copilotPremiumUsageMonitor.statusBarIconOverride — optional Codicon (e.g. `graph`, `pulse`, `rocket`, `dashboard`). Invalid / unknown names: automatic icon is used and a persistent (until fixed) yellow warning banner + one‑time log message appears. Full list: https://microsoft.github.io/vscode-codicons/dist/codicon.html
 
 ## Settings Sync
 
@@ -75,6 +76,7 @@ code --install-extension fail-safe.copilot-premium-usage-monitor
 - No orgs listed: Ensure read:org and membership; org may restrict visibility.
 - Need more detail? Run "Copilot Premium Usage Monitor: Show Logs" or enable `copilotPremiumUsageMonitor.showLogOnError` to automatically open the log on the first error.
 - Need diagnostics: Run the command "Copilot Premium Usage Monitor: Show Logs".
+ - Custom icon not applied: Check the panel warning banner and Output Channel for a message about `statusBarIconOverride` (unknown or malformed). Use a valid Codicon name from the list linked in settings.
 
 ## Running locally
 

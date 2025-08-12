@@ -10,6 +10,18 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 - CI workflow for build and packaging.
 - Optional command to force refresh ignoring cache.
 
+## [0.4.0] - 2025-08-12
+### Added
+- Setting: `useThemeStatusColor` to improve contrast by using the theme's default status bar foreground except when warning/danger/error states apply.
+- Setting: `statusBarIconOverride` to allow choosing a custom Codicon for normal (non-error) status bar state.
+- In‑panel warning banner (persistent across panel opens) for invalid / unknown `statusBarIconOverride` values.
+### Changed
+- Status bar now uses an account icon in Personal (PAT) mode instead of the organization icon for clearer context.
+- Warning banner styling updated for higher contrast & accessibility (role=alert); automatically clears when override fixed.
+### Fixed / Improved
+- Validation and one-time log message for malformed or unknown `statusBarIconOverride` values with safe fallback.
+- Persist and replay last sync error & icon override warning when panel reopens, reducing silent failure risk.
+
 ## [0.3.0] - 2025-08-12
 ### Changed
 - Clarified 404 error messages for personal Enhanced Billing usage and org metrics with actionable causes and documentation links.

@@ -211,6 +211,57 @@ function showErrorBanner(msg) {
       `;
       const summary = document.querySelector('#summary');
       summary?.appendChild(el);
+    } else if (msg.type === 'iconOverrideWarning') {
+      // Non-fatal warning banner (distinct styling from error) with higher contrast
+      let banner = document.getElementById('icon-override-warning');
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'icon-override-warning';
+        banner.setAttribute('role', 'alert');
+        // Use a proper warning background (light) and strong foreground for readability
+        banner.style.background = 'var(--vscode-inputValidation-warningBackground, var(--vscode-editorWarning-background, #fff8d1))';
+        banner.style.color = 'var(--vscode-inputValidation-warningForeground, var(--vscode-editorWarning-foreground, #5c4400))';
+        banner.style.border = '1px solid var(--vscode-inputValidation-warningBorder, #d5b200)';
+        banner.style.padding = '8px 14px';
+        banner.style.marginBottom = '10px';
+        banner.style.borderRadius = '5px';
+        banner.style.fontWeight = '600';
+        banner.style.display = 'flex';
+        banner.style.alignItems = 'center';
+        banner.style.gap = '8px';
+        // Icon (optional)
+        const icon = document.createElement('span');
+        icon.textContent = '⚠️';
+        icon.setAttribute('aria-hidden', 'true');
+        banner.appendChild(icon);
+        const text = document.createElement('span');
+        text.textContent = (msg.message || 'Invalid icon override; using default.');
+        banner.appendChild(text);
+        const close = document.createElement('button');
+        close.textContent = '×';
+        close.setAttribute('aria-label', 'Dismiss');
+        close.style.marginLeft = 'auto';
+        close.style.background = 'transparent';
+        close.style.border = 'none';
+        close.style.cursor = 'pointer';
+        close.style.fontSize = '16px';
+        close.style.color = 'inherit';
+        close.addEventListener('click', () => banner.remove());
+        banner.appendChild(close);
+        const container = document.getElementById('error-banner-container');
+        if (container) {
+          container.prepend(banner);
+        } else {
+          document.body.prepend(banner);
+        }
+      } else {
+        // Update message text (second child after icon)
+        const textNode = banner.querySelector('span:nth-of-type(2)');
+        if (textNode) textNode.textContent = (msg.message || textNode.textContent);
+      }
+    } else if (msg.type === 'clearIconOverrideWarning') {
+      const banner = document.getElementById('icon-override-warning');
+      if (banner) banner.remove();
     }
   });
 

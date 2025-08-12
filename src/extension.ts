@@ -95,7 +95,8 @@ export function activate(context: vscode.ExtensionContext) {
 			e.affectsConfiguration('copilotPremiumUsageMonitor.mode') ||
 			e.affectsConfiguration('copilotPremiumUsageMonitor.org') ||
 			e.affectsConfiguration('copilotPremiumUsageMonitor.warnAtPercent') ||
-			e.affectsConfiguration('copilotPremiumUsageMonitor.dangerAtPercent')
+			e.affectsConfiguration('copilotPremiumUsageMonitor.dangerAtPercent') ||
+			e.affectsConfiguration('copilotPremiumUsageMonitor.statusBarIconOverride')
 		) {
 			updateStatusBar();
 		}
@@ -125,6 +126,13 @@ class UsagePanel {
 	private readonly globalState: vscode.Memento;
 	private disposables: vscode.Disposable[] = [];
 	private static _session: vscode.AuthenticationSession | undefined;
+	public static postMessage(data: any) {
+		try {
+			if (UsagePanel.currentPanel) {
+				(UsagePanel.currentPanel as any).panel?.webview?.postMessage(data);
+			}
+		} catch { }
+	}
 
 	static async ensureGitHubSession(): Promise<vscode.AuthenticationSession | undefined> {
 		// Use token from settings first if provided
@@ -334,11 +342,15 @@ class UsagePanel {
 	}
 
 	private post(data: any) {
-		// If posting config, also send last error state
+		// When sending config, also replay last error and any persisted icon override warning
 		if (data.type === 'config') {
 			const lastError = this.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
 			if (lastError) {
 				this.panel.webview.postMessage({ type: 'error', message: lastError });
+			}
+			const iconWarn = this.globalState.get<string>('copilotPremiumUsageMonitor.iconOverrideWarning');
+			if (iconWarn) {
+				this.panel.webview.postMessage({ type: 'iconOverrideWarning', message: iconWarn });
 			}
 		}
 		this.panel.webview.postMessage(data);
@@ -438,6 +450,8 @@ let statusItem: vscode.StatusBarItem | undefined;
 let statusBarMissingWarned = false; // one-time gate for missing status bar warning
 let _logChannel: vscode.OutputChannel | undefined;
 let logAutoOpened = false; // track automatic log opening per session
+// Track last icon override warning message so we can refresh banner text when the override changes.
+let lastIconOverrideWarningMessage: string | undefined;
 function getLog(): vscode.OutputChannel {
 	if (!_logChannel) {
 		_logChannel = vscode.window.createOutputChannel('Copilot Premium Usage');
@@ -501,9 +515,64 @@ function updateStatusBar() {
 		const bar = '▰'.repeat(filled) + '▱'.repeat(Math.max(0, segments - filled));
 		const warnAt = Number(cfg.get('warnAtPercent') ?? 80);
 		const dangerAt = Number(cfg.get('dangerAtPercent') ?? 100);
+		// Determine mode to pick a base icon (organization vs personal account)
+		let baseIcon = 'organization';
+		try {
+			const { mode } = getBudgetSpendAndMode();
+			if (mode === 'personal') baseIcon = 'account';
+		} catch { }
 		// Determine stale/error state from last stored sync error
 		const lastError = extCtx.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
-		let icon = 'organization';
+		let icon = baseIcon;
+		// Allow a user override if provided and we're not currently showing an error icon
+		if (!lastError) {
+			try {
+				const overrideRaw = (cfg.get('statusBarIconOverride') as string | undefined)?.trim();
+				if (overrideRaw) {
+					const candidate = overrideRaw.toLowerCase();
+					const syntacticallyValid = /^[a-z0-9-]{2,}$/i.test(candidate);
+					const known: Record<string, true> = {
+						account: true, organization: true, graph: true, pulse: true, dashboard: true, repo: true, rocket: true, flame: true,
+						star: true, cloud: true, shield: true, zap: true, beaker: true, 'circuit-board': true, bell: true, globe: true,
+						gear: true, history: true, calendar: true, tag: true, info: true, search: true, workspace: true,
+						'folder-active': true, 'symbol-method': true, 'symbol-variable': true, plug: true
+					};
+					if (syntacticallyValid) {
+						if (!known[candidate]) {
+							const message = `Icon override '${candidate}' not recognized. Using default icon.`;
+							if (message !== lastIconOverrideWarningMessage) {
+								getLog().appendLine(`[CopilotPremiumUsageMonitor] statusBarIconOverride '${candidate}' not in known codicon shortlist. Using default icon. See: https://microsoft.github.io/vscode-codicons/dist/codicon.html`);
+								UsagePanel.postMessage({ type: 'iconOverrideWarning', message });
+								try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', message); } catch { }
+								lastIconOverrideWarningMessage = message;
+							}
+						} else {
+							icon = candidate; // accept override
+							if (lastIconOverrideWarningMessage) {
+								UsagePanel.postMessage({ type: 'clearIconOverrideWarning' });
+								try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', undefined); } catch { }
+								lastIconOverrideWarningMessage = undefined;
+							}
+						}
+					} else {
+						const message = `Icon override '${overrideRaw}' is invalid. Using default icon.`;
+						if (message !== lastIconOverrideWarningMessage) {
+							getLog().appendLine(`[CopilotPremiumUsageMonitor] statusBarIconOverride value '${overrideRaw}' is not a valid codicon identifier (must be [a-z0-9-], length >=2). Using default icon.`);
+							UsagePanel.postMessage({ type: 'iconOverrideWarning', message });
+							try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', message); } catch { }
+							lastIconOverrideWarningMessage = message;
+						}
+					}
+				} else {
+					// Override cleared -> remove any stored warning & banner if present
+					if (lastIconOverrideWarningMessage) {
+						UsagePanel.postMessage({ type: 'clearIconOverrideWarning' });
+						try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', undefined); } catch { }
+						lastIconOverrideWarningMessage = undefined;
+					}
+				}
+			} catch { /* ignore override errors */ }
+		}
 		let forcedColor: vscode.ThemeColor | undefined;
 		let staleTag = '';
 		if (lastError) {
@@ -520,13 +589,23 @@ function updateStatusBar() {
 				forcedColor = new vscode.ThemeColor('charts.yellow');
 			}
 		}
-		const normalColor = percent >= dangerAt
-			? new vscode.ThemeColor('charts.red')
-			: percent >= warnAt
-				? new vscode.ThemeColor('charts.yellow')
-				: new vscode.ThemeColor('charts.green');
+		const useThemeDefault = cfg.get<boolean>('useThemeStatusColor') !== false; // default true
+		let derivedColor: vscode.ThemeColor | undefined;
+		if (forcedColor) {
+			derivedColor = forcedColor; // error / stale overrides
+		} else if (percent >= dangerAt) {
+			derivedColor = new vscode.ThemeColor('charts.red');
+		} else if (percent >= warnAt) {
+			derivedColor = new vscode.ThemeColor('charts.yellow');
+		} else if (!useThemeDefault) {
+			// Only apply the green usage color when user opts out of theme default contrast mode
+			derivedColor = new vscode.ThemeColor('charts.green');
+		} else {
+			// leave undefined to inherit theme's status bar foreground
+			derivedColor = undefined;
+		}
 		statusItem.text = `$(${icon}) ${percent}% ${bar}${staleTag}`;
-		statusItem.color = forcedColor ?? normalColor;
+		statusItem.color = derivedColor;
 		const md = new vscode.MarkdownString(undefined, true);
 		md.isTrusted = true;
 		md.appendMarkdown(`**${localize('cpum.statusbar.title', 'Copilot Premium Usage')}**\n\n`);

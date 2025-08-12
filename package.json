@@ -2,7 +2,7 @@
   "name": "copilot-premium-usage-monitor",
   "displayName": "Copilot Premium Usage Monitor",
   "description": "Monitor usage and budget for Copilot Premium Request SKU from VS Code.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "fail-safe",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -133,6 +133,17 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically open the extension log output channel the first time an error occurs in a session."
+        },
+        "copilotPremiumUsageMonitor.useThemeStatusColor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use the theme's default status bar text color for normal state (improves contrast). Color is only applied for warning / danger thresholds or errors. Disable to always colorize by usage percent."
+        },
+        "copilotPremiumUsageMonitor.statusBarIconOverride": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional Codicon name (without $() ) to force a specific status bar icon when not in an error/stale state. Example: `graph`, `pulse`, `dashboard`, `repo`, `rocket`. Full list: https://microsoft.github.io/vscode-codicons/dist/codicon.html. Leave blank to use automatic account/organization and error icons.",
+          "description": "Override status bar icon (Codicon name) when normal. Blank = automatic."
         }
       }
     }
