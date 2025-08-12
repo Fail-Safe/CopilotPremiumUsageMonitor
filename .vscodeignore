@@ -1,0 +1,12 @@
+# Exclude dev/test artifacts
+**/*.ts
+!out/**/*.js
+node_modules/.bin
+node_modules/@types
+**/*.map
+.vscode/
+.github/
+.eslintrc.json
+resources/
+tsconfig.json
+package-lock.json

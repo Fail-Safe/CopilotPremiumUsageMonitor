@@ -2,8 +2,34 @@
   "name": "copilot-premium-usage-monitor",
   "displayName": "Copilot Premium Usage Monitor",
   "description": "Monitor usage and budget for Copilot Premium Request SKU from VS Code.",
-  "version": "0.0.1",
+  "version": "0.2.1",
   "publisher": "fail-safe",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Fail-Safe/CopilotPremiumUsageMonitor"
+  },
+  "bugs": {
+    "url": "https://github.com/Fail-Safe/CopilotPremiumUsageMonitor/issues"
+  },
+  "homepage": "https://github.com/Fail-Safe/CopilotPremiumUsageMonitor#readme",
+  "keywords": [
+    "copilot",
+    "github",
+    "usage",
+    "budget",
+    "billing",
+    "monitor",
+    "statusbar"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "galleryBanner": {
+    "color": "#1f2428",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.86.0"
   },
@@ -12,26 +38,6 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "cpumContainer",
-          "title": "Copilot Usage",
-          "icon": "media/icon.svg",
-          "when": "cpum.enableSidebar"
-        }
-      ]
-    },
-    "views": {
-      "cpumContainer": [
-        {
-          "id": "copilotPremiumUsageMonitor.sidebar",
-          "name": "Usage",
-          "icon": "media/icon.svg",
-          "when": "cpum.enableSidebar"
-        }
-      ]
-    },
     "commands": [
       {
         "command": "copilotPremiumUsageMonitor.openPanel",
@@ -52,6 +58,10 @@
       {
         "command": "copilotPremiumUsageMonitor.manage",
         "title": "Copilot Premium Usage Monitor: Manage"
+      },
+      {
+        "command": "copilotPremiumUsageMonitor.showLogs",
+        "title": "Copilot Premium Usage Monitor: Show Logs"
       }
     ],
     "configuration": {
@@ -110,34 +120,44 @@
           "default": false,
           "description": "Permanently disable the first-run tip banner in the panel."
         },
-        "copilotPremiumUsageMonitor.enableSidebar": {
+        "copilotPremiumUsageMonitor.statusBarAlignment": {
+          "type": "string",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "default": "left",
+          "description": "Status bar item alignment: left (near editor info) or right (near GitHub/Copilot icons)."
+        },
+        "copilotPremiumUsageMonitor.showLogOnError": {
           "type": "boolean",
           "default": false,
-          "description": "Show the Copilot Usage Sidebar view (off by default)."
+          "description": "Automatically open the extension log output channel the first time an error occurs in a session."
         }
       }
     }
   },
   "activationEvents": [
-    "*",
     "onStartupFinished"
   ],
   "scripts": {
     "vscode:prepublish": "tsc -p ./",
     "compile": "tsc -watch -p ./",
     "lint": "eslint src --ext .ts",
-    "test": "node --test --test-reporter=spec out/test/**/*.test.js"
+    "test": "node --test --test-reporter=spec out/test/**/*.test.js",
+    "package": "vsce package",
+    "release": "npm run vscode:prepublish && vsce publish"
   },
   "devDependencies": {
     "@types/node": "^20.11.17",
     "@types/vscode": "^1.86.0",
-    "esbuild": "^0.21.5",
-    "typescript": "^5.4.5"
+    "esbuild": "^0.25.8",
+    "typescript": "^5.4.5",
+    "vsce": "^2.24.0",
+    "@vscode/test-electron": "^2.3.9"
   },
   "dependencies": {
-    "@octokit/core": "^7.0.3",
     "@octokit/rest": "^22.0.0",
-    "universal-user-agent": "^7.0.3",
     "vscode-nls": "^5.2.0"
   }
 }

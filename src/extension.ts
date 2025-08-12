@@ -1,8 +1,19 @@
 import * as vscode from 'vscode';
-import { Octokit } from '@octokit/rest';
+// Octokit will be loaded lazily to reduce activation overhead
 import * as nls from 'vscode-nls';
 
 const localize = nls.loadMessageBundle();
+
+// Lazy Octokit cache
+type OctokitModule = typeof import('@octokit/rest');
+let _octokitModule: OctokitModule | undefined;
+async function getOctokit(auth?: string) {
+	if (!_octokitModule) {
+		_octokitModule = await import('@octokit/rest');
+	}
+	const { Octokit } = _octokitModule;
+	return new Octokit({ auth, request: { headers: { 'X-GitHub-Api-Version': '2022-11-28' } } });
+}
 
 export function activate(context: vscode.ExtensionContext) {
 	// Make context available for status bar updates
@@ -27,19 +38,20 @@ export function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 		try {
-			const octokit = new Octokit({ auth: token, request: { headers: { 'X-GitHub-Api-Version': '2022-11-28' } } });
+			const octokit = await getOctokit(token);
 			const orgs = await octokit.paginate('GET /user/orgs', { per_page: 100 });
 			if (!orgs.length) {
 				vscode.window.showInformationMessage('No organizations found for your account.');
 				return;
 			}
-			const pick = await vscode.window.showQuickPick(orgs.map((o: any) => ({ label: o.login, description: o.description || '' })), { placeHolder: 'Select an organization' });
-			if (pick?.label) {
+			const pick = await vscode.window.showQuickPick(orgs.map((o: any) => ({ label: o.login as string, description: o.description || '' })), { placeHolder: 'Select an organization' });
+			if (pick && typeof pick.label === 'string') {
 				await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', pick.label, vscode.ConfigurationTarget.Global);
 				vscode.window.showInformationMessage(`Organization set to ${pick.label}`);
 			}
 		} catch (e: any) {
 			vscode.window.showErrorMessage(`Failed to list organizations: ${e?.message ?? e}`);
+			maybeAutoOpenLog();
 		}
 	});
 
@@ -54,6 +66,13 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 	context.subscriptions.push(manage);
 
+	const showLogs = vscode.commands.registerCommand('copilotPremiumUsageMonitor.showLogs', () => {
+		const log = getLog();
+		log.show(true);
+		log.appendLine('[User] Opened log channel');
+	});
+	context.subscriptions.push(showLogs);
+
 	const enableFirstRun = vscode.commands.registerCommand('copilotPremiumUsageMonitor.enableFirstRunNotice', async () => {
 		await context.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', false);
 		await context.globalState.update('copilotPremiumUsageMonitor.firstRunShown', false);
@@ -67,13 +86,7 @@ export function activate(context: vscode.ExtensionContext) {
 	initStatusBar(context);
 	updateStatusBar();
 
-	// Apply sidebar visibility context based on setting
-	applySidebarContext();
-
-	// Register sidebar webview view
-	sidebarProvider = new UsageSidebarViewProvider(context);
-	context.subscriptions.push(vscode.window.registerWebviewViewProvider('copilotPremiumUsageMonitor.sidebar', sidebarProvider));
-	updateSidebarView();
+	// Sidebar removed in v0.2.0
 
 	// React to budget changes
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
@@ -85,26 +98,25 @@ export function activate(context: vscode.ExtensionContext) {
 			e.affectsConfiguration('copilotPremiumUsageMonitor.dangerAtPercent')
 		) {
 			updateStatusBar();
-			updateSidebarView();
 		}
 		if (e.affectsConfiguration('copilotPremiumUsageMonitor.refreshIntervalMinutes')) {
 			restartAutoRefresh();
 		}
-		if (e.affectsConfiguration('copilotPremiumUsageMonitor.enableSidebar')) {
-			applySidebarContext();
+		if (e.affectsConfiguration('copilotPremiumUsageMonitor.statusBarAlignment')) {
+			initStatusBar(context); // recreate with new alignment
+			updateStatusBar();
 		}
 	}));
 
 	// Start auto-refresh
 	startAutoRefresh();
+	startRelativeTimeTicker();
 }
-async function applySidebarContext() {
-	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-	const enabled = cfg.get<boolean>('enableSidebar') === true;
-	await vscode.commands.executeCommand('setContext', 'cpum.enableSidebar', enabled);
-}
+// applySidebarContext removed with sidebar feature.
 
-export function deactivate() { }
+export function deactivate() {
+	stopRelativeTimeTicker();
+}
 
 class UsagePanel {
 	public static currentPanel: UsagePanel | undefined;
@@ -128,6 +140,7 @@ class UsagePanel {
 			return this._session;
 		} catch (err) {
 			vscode.window.showErrorMessage('GitHub sign-in failed or was cancelled.');
+			maybeAutoOpenLog();
 			return undefined;
 		}
 	}
@@ -213,6 +226,7 @@ class UsagePanel {
 						});
 						await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', errorMsg);
 						vscode.window.showErrorMessage(errorMsg);
+						maybeAutoOpenLog();
 						updateStatusBar(); // reflect stale state immediately
 						break;
 					}
@@ -223,7 +237,7 @@ class UsagePanel {
 					const effectiveMode = mode === 'auto' ? (org ? 'org' : 'personal') : mode;
 					if (effectiveMode === 'personal') {
 						try {
-							const octokit = new Octokit({ auth: token, request: { headers: { 'X-GitHub-Api-Version': '2022-11-28' } } });
+							const octokit = await getOctokit(token);
 							const me = await octokit.request('GET /user');
 							const login = me.data?.login as string | undefined;
 							if (!login) throw new Error('Cannot determine authenticated username.');
@@ -233,6 +247,7 @@ class UsagePanel {
 							const billing = await fetchUserBillingUsage(login, token, { year, month });
 							// Clear stored last error BEFORE updating spend so status bar removes stale tag
 							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { }
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { }
 							await this.setSpend(billing.totalNetAmount); // triggers status bar update
 							this.post({ type: 'billing', billing });
 							// Clear previous error state if any (webview)
@@ -255,6 +270,7 @@ class UsagePanel {
 							this.post({ type: 'error', message });
 							await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', message);
 							vscode.window.showErrorMessage(message);
+							maybeAutoOpenLog();
 							updateStatusBar(); // show stale icon/tag
 							// Do NOT call update here; let the error banner remain visible
 						}
@@ -264,6 +280,7 @@ class UsagePanel {
 						const metrics = await fetchOrgCopilotMetrics(org!, token, {});
 						// Clear error first so status bar update (below) reflects non-stale state
 						try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { }
+						try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { }
 						this.post({ type: 'metrics', metrics });
 						this.post({ type: 'clearError' });
 						updateStatusBar(); // spend may not change, but remove stale tag/icon
@@ -279,6 +296,7 @@ class UsagePanel {
 						this.post({ type: 'error', message });
 						await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', message);
 						vscode.window.showErrorMessage(message);
+						maybeAutoOpenLog();
 						updateStatusBar();
 					}
 					// Do NOT call update here; let the error banner remain visible
@@ -386,7 +404,6 @@ class UsagePanel {
 	private async setSpend(value: number) {
 		await this.globalState.update('copilotPremiumUsageMonitor.currentSpend', value);
 		updateStatusBar();
-		updateSidebarView();
 	}
 
 	private getSpend(): number {
@@ -413,27 +430,60 @@ class UsagePanel {
 // ---------------- Status bar meter ----------------
 let extCtx: vscode.ExtensionContext;
 let statusItem: vscode.StatusBarItem | undefined;
-let sidebarProvider: UsageSidebarViewProvider | undefined;
+let statusBarMissingWarned = false; // one-time gate for missing status bar warning
+let _logChannel: vscode.OutputChannel | undefined;
+let logAutoOpened = false; // track automatic log opening per session
+function getLog(): vscode.OutputChannel {
+	if (!_logChannel) {
+		_logChannel = vscode.window.createOutputChannel('Copilot Premium Usage');
+	}
+	return _logChannel;
+}
+function maybeAutoOpenLog() {
+	try {
+		if (logAutoOpened) return;
+		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		if (!cfg.get<boolean>('showLogOnError')) return;
+		logAutoOpened = true;
+		const log = getLog();
+		log.show(true);
+		log.appendLine('[AutoOpen] Log channel opened due to first error (showLogOnError=true).');
+	} catch { }
+}
+// Sidebar feature removed in v0.2.0 (sidebarProvider eliminated)
 let autoRefreshTimer: NodeJS.Timeout | undefined;
+let relativeTimeTimer: NodeJS.Timeout | undefined;
 
 function initStatusBar(context: vscode.ExtensionContext) {
 	try {
+		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		const alignSetting = (cfg.get<string>('statusBarAlignment') || 'left').toLowerCase();
+		const desiredAlignment = alignSetting === 'right' ? vscode.StatusBarAlignment.Right : vscode.StatusBarAlignment.Left;
+		// Recreate if alignment changed
+		if (statusItem && statusItem.alignment !== desiredAlignment) {
+			try { statusItem.dispose(); } catch { }
+			statusItem = undefined;
+		}
 		if (!statusItem) {
-			statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+			statusItem = vscode.window.createStatusBarItem(desiredAlignment, 100);
 			statusItem.name = 'Copilot Premium Usage';
 			statusItem.command = 'copilotPremiumUsageMonitor.openPanel';
 			context.subscriptions.push(statusItem);
 		}
 	} catch (err) {
-		console.error('[CopilotPremiumUsageMonitor] Error initializing status bar:', err);
-		vscode.window.showErrorMessage('Error initializing Copilot Premium Usage status bar. See console for details.');
+		getLog().appendLine(`[CopilotPremiumUsageMonitor] Error initializing status bar: ${err instanceof Error ? err.stack || err.message : String(err)}`);
+		vscode.window.showErrorMessage('Error initializing Copilot Premium Usage status bar. See Output channel for details.');
+		maybeAutoOpenLog();
 	}
 }
 
 function updateStatusBar() {
 	try {
 		if (!statusItem || !extCtx) {
-			console.warn('[CopilotPremiumUsageMonitor] Status bar item or extension context missing.');
+			if (!statusBarMissingWarned) {
+				getLog().appendLine('[CopilotPremiumUsageMonitor] Status bar item or extension context missing.');
+				statusBarMissingWarned = true;
+			}
 			return;
 		}
 		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
@@ -476,6 +526,65 @@ function updateStatusBar() {
 		md.isTrusted = true;
 		md.appendMarkdown(`**${localize('cpum.statusbar.title', 'Copilot Premium Usage')}**\n\n`);
 		md.appendMarkdown(`${localize('cpum.statusbar.budget', 'Budget')}: $${budget.toFixed(2)}  |  ${localize('cpum.statusbar.spend', 'Spend')}: $${spend.toFixed(2)}  |  ${localize('cpum.statusbar.used', 'Used')}: ${percent}%`);
+		// Show last (successful) sync timestamp even when stale
+		{
+			const ts = extCtx.globalState.get<number>('copilotPremiumUsageMonitor.lastSyncTimestamp');
+			if (ts) {
+				try {
+					const dt = new Date(ts);
+					const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+					const offsetMin = dt.getTimezoneOffset();
+					const absMin = Math.abs(offsetMin);
+					const offH = String(Math.floor(absMin / 60)).padStart(2, '0');
+					const offM = String(absMin % 60).padStart(2, '0');
+					const sign = offsetMin <= 0 ? '+' : '-';
+					const offsetStr = `UTC${sign}${offH}:${offM}`;
+					const formatted = new Intl.DateTimeFormat(undefined, {
+						year: 'numeric', month: '2-digit', day: '2-digit',
+						hour: '2-digit', minute: '2-digit', second: '2-digit'
+					}).format(dt);
+					let rel = '';
+					try {
+						const diffMs = Date.now() - dt.getTime();
+						if (diffMs >= 0) {
+							const sec = Math.floor(diffMs / 1000);
+							if (sec < 1) rel = 'just now';
+							else if (sec < 45) rel = `${sec}s ago`;
+							else if (sec < 90) rel = '1m ago';
+							else {
+								const min = Math.floor(sec / 60);
+								if (min < 60) rel = `${min}m ago`;
+								else {
+									const hr = Math.floor(min / 60);
+									const remMin = min % 60;
+									if (hr < 24) rel = remMin ? `${hr}h ${remMin}m ago` : `${hr}h ago`;
+									else {
+										const day = Math.floor(hr / 24);
+										if (day < 7) rel = `${day}d ago`;
+										else {
+											const wk = Math.floor(day / 7);
+											if (wk < 4) rel = `${wk}w ago`;
+											else {
+												const mo = Math.floor(day / 30);
+												if (mo < 12) rel = `${mo}mo ago`;
+												else {
+													const yr = Math.floor(day / 365);
+													rel = `${yr}y ago`;
+												}
+											}
+										}
+									}
+								}
+							}
+						} else {
+							rel = 'just now';
+						}
+					} catch { }
+					const label = lastError ? localize('cpum.statusbar.lastSuccessfulSync', 'Last successful sync') : localize('cpum.statusbar.lastSync', 'Last sync');
+					md.appendMarkdown(`\n\n$(sync) ${label}: ${formatted} ${rel ? ` • ${rel}` : ''}`);
+				} catch { }
+			}
+		}
 		md.appendMarkdown(`\n\n$(gear) ${localize('cpum.statusbar.manageHint', 'Run "Copilot Premium Usage Monitor: Manage" to configure.')}`);
 		// If the last sync produced an error, surface a stale data notice
 		try {
@@ -489,95 +598,13 @@ function updateStatusBar() {
 		statusItem.tooltip = md;
 		statusItem.show();
 	} catch (err) {
-		console.error('[CopilotPremiumUsageMonitor] Error updating status bar:', err);
-		vscode.window.showErrorMessage('Error updating Copilot Premium Usage status bar. See console for details.');
+		getLog().appendLine(`[CopilotPremiumUsageMonitor] Error updating status bar: ${err instanceof Error ? err.stack || err.message : String(err)}`);
+		vscode.window.showErrorMessage('Error updating Copilot Premium Usage status bar. See Output channel for details.');
+		maybeAutoOpenLog();
 	}
 }
 
-// ---------------- Sidebar view ----------------
-class UsageSidebarViewProvider implements vscode.WebviewViewProvider {
-	constructor(private readonly context: vscode.ExtensionContext) { }
-
-	private _view?: vscode.WebviewView;
-
-	resolveWebviewView(webviewView: vscode.WebviewView): void | Thenable<void> {
-		this._view = webviewView;
-		webviewView.webview.options = { enableScripts: true, localResourceRoots: [this.context.extensionUri] };
-		webviewView.webview.onDidReceiveMessage(async (msg) => {
-			if (msg?.type === 'openPanel') {
-				await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
-			} else if (msg?.type === 'help') {
-				const readme = vscode.Uri.joinPath(this.context.extensionUri, 'README.md');
-				try {
-					await vscode.commands.executeCommand('markdown.showPreview', readme);
-				} catch {
-					try { await vscode.window.showTextDocument(readme); } catch { }
-				}
-			}
-		});
-		this.update();
-	}
-
-	update() {
-		if (!this._view) return;
-		const webview = this._view.webview;
-		const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', 'webview.css'));
-		const { budget, spend, percent, pct, mode } = getBudgetSpendAndMode();
-		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-		const warnAt = Number(cfg.get('warnAtPercent') ?? 80);
-		const dangerAt = Number(cfg.get('dangerAtPercent') ?? 100);
-		const barColor = percent >= dangerAt ? '#e51400' : percent >= warnAt ? '#f0ad4e' : '#2d7d46';
-		const lightenHex = (hex: string, amount: number) => {
-			const m = /^#?([0-9a-fA-F]{6})$/.exec(hex);
-			if (!m) return hex;
-			const h = m[1];
-			const r = parseInt(h.slice(0, 2), 16);
-			const g = parseInt(h.slice(2, 4), 16);
-			const b = parseInt(h.slice(4, 6), 16);
-			const lr = Math.min(255, Math.round(r + (255 - r) * amount));
-			const lg = Math.min(255, Math.round(g + (255 - g) * amount));
-			const lb = Math.min(255, Math.round(b + (255 - b) * amount));
-			const toHex = (n: number) => n.toString(16).padStart(2, '0');
-			return `#${toHex(lr)}${toHex(lg)}${toHex(lb)}`;
-		};
-		const startColor = lightenHex(barColor, 0.18);
-		const icon = mode === 'org' ? '👥' : mode === 'personal' ? '👤' : '⚙️';
-		const nonce = getNonce();
-		this._view.webview.html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-  <link href="${styleUri}" rel="stylesheet" />
-  <style>
-	.mini { display:flex; align-items:center; gap:8px; cursor:pointer; }
-	.mini .icon { font-size: 16px; line-height: 1; }
-	.mini .meter { flex:1; height:10px; }
-	.mini .fill { background: linear-gradient(to right, ${startColor}, ${barColor}); }
-	.mini .pct { font-size:11px; opacity:.8; width:36px; text-align:right; }
-  </style>
-  <title>Copilot Usage</title>
-  </head>
-  <body>
-	<div class="mini" id="openPanel" title="Open Copilot Premium Usage Panel">
-	  <div class="icon">${icon}</div>
-	  <div class="meter"><div class="fill" style="width:${Math.round(pct * 100)}%"></div></div>
-	  <div class="pct">${percent}%</div>
-	</div>
-	<div style="margin-top:6px; font-size:11px;"><a id="helpLink" href="#">Help</a></div>
-	<script nonce="${nonce}">
-	  const vscode = acquireVsCodeApi ? acquireVsCodeApi() : undefined;
-	  document.getElementById('openPanel')?.addEventListener('click', () => vscode?.postMessage({ type: 'openPanel' }));
-	  document.getElementById('helpLink')?.addEventListener('click', (e) => { e.preventDefault(); vscode?.postMessage({ type: 'help' }); });
-	</script>
-  </body>
-  </html>`;
-	}
-}
-
-function updateSidebarView() {
-	try { sidebarProvider?.update(); } catch { }
-}
+// Sidebar view removed.
 
 function getBudgetSpendAndMode() {
 	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
@@ -614,6 +641,24 @@ function stopAutoRefresh() {
 	}
 }
 
+function startRelativeTimeTicker() {
+	stopRelativeTimeTicker();
+	relativeTimeTimer = setInterval(() => {
+		try {
+			if (!extCtx) return;
+			const ts = extCtx.globalState.get<number>('copilotPremiumUsageMonitor.lastSyncTimestamp');
+			if (ts) updateStatusBar();
+		} catch { }
+	}, 30000); // 30s cadence
+}
+
+function stopRelativeTimeTicker() {
+	if (relativeTimeTimer) {
+		clearInterval(relativeTimeTimer);
+		relativeTimeTimer = undefined;
+	}
+}
+
 async function performAutoRefresh() {
 	// Try non-interactive token acquisition to avoid prompting
 	const token = await getGitHubTokenNonInteractive();
@@ -624,7 +669,7 @@ async function performAutoRefresh() {
 	const mode = incomingMode === 'auto' ? (org ? 'org' : 'personal') : incomingMode;
 	if (mode === 'personal') {
 		try {
-			const octokit = new Octokit({ auth: token, request: { headers: { 'X-GitHub-Api-Version': '2022-11-28' } } });
+			const octokit = await getOctokit(token);
 			const me = await octokit.request('GET /user');
 			const login = me.data?.login as string | undefined;
 			if (!login) return;
@@ -633,15 +678,14 @@ async function performAutoRefresh() {
 			const month = now.getUTCMonth() + 1;
 			const billing = await fetchUserBillingUsage(login, token, { year, month });
 			try { await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { }
+			try { await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { }
 			await extCtx.globalState.update('copilotPremiumUsageMonitor.currentSpend', billing.totalNetAmount);
 			updateStatusBar(); // will drop stale tag if present
-			updateSidebarView();
 		} catch {
 			// ignore in background
 		}
 	} else {
-		// Org mode: we don't derive spend; optional future: surface a small org metric badge
-		updateSidebarView();
+		// Org mode: we don't derive spend; optional future: surface a small org metric badge (sidebar removed)
 	}
 }
 
@@ -681,7 +725,7 @@ type OrgMetricsDay = {
 };
 
 async function fetchOrgCopilotMetrics(org: string, token: string, opts?: { since?: Date; until?: Date; }): Promise<{ days: number; since: string; until: string; engagedUsersSum: number; codeSuggestionsSum: number; }> {
-	const octokit = new Octokit({ auth: token, request: { headers: { 'X-GitHub-Api-Version': '2022-11-28' } } });
+	const octokit = await getOctokit(token);
 	const until = opts?.until ?? new Date();
 	const since = opts?.since ?? new Date(until.getTime() - 27 * 24 * 60 * 60 * 1000); // 28 days window
 	const sinceIso = since.toISOString().slice(0, 19) + 'Z';
@@ -725,7 +769,7 @@ type BillingUsageItem = {
 };
 
 async function fetchUserBillingUsage(username: string, token: string, opts: { year?: number; month?: number; day?: number; hour?: number; }) {
-	const octokit = new Octokit({ auth: token, request: { headers: { 'X-GitHub-Api-Version': '2022-11-28' } } });
+	const octokit = await getOctokit(token);
 	const res = await octokit.request('GET /users/{username}/settings/billing/usage', {
 		username,
 		year: opts.year,
