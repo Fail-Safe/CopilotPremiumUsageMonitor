@@ -9,6 +9,8 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 - Basic activation test harness.
 - CI workflow for build and packaging.
 - Optional command to force refresh ignoring cache.
+### Changed
+- Updated extension icon (icon.png) to use a fully transparent background for better appearance in light/dark themes.
 
 ## [0.4.0] - 2025-08-12
 ### Added

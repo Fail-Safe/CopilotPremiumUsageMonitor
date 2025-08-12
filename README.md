@@ -14,6 +14,9 @@ Monitor your GitHub Copilot Premium usage and spend against a monthly budget in 
 |-----------|----------------------|
 | ![Panel](./media/screenshot-panel.png) | ![Status Bar](./media/screenshot-statusbar.png) |
 
+### Icon
+The extension icon (`media/icon.png`) uses a transparent background to blend with both light and dark Marketplace themes. If you replace it, prefer a square PNG (128×128 or 256×256) with transparency (no solid white/black box) and avoid heavy outer padding so it renders crisply at smaller sizes.
+
 
 ## Features
 
