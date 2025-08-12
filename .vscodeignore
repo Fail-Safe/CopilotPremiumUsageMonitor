@@ -10,3 +10,4 @@ node_modules/@types
 resources/
 tsconfig.json
 package-lock.json
+media/*.svg
