@@ -1,0 +1,97 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Semver bump type (patch, minor, major, prepatch, preminor, premajor, prerelease, auto)"
+        required: true
+        default: patch
+      preid:
+        description: "Pre-release identifier (for pre* / prerelease)"
+        required: false
+        default: beta
+
+jobs:
+  bump-tag-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Ensure working tree clean
+        run: |
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            echo "Working tree has uncommitted changes. Please commit or stash before releasing." >&2
+            exit 1
+          fi
+
+      - name: Bump version & update CHANGELOG
+        id: bump
+        env:
+          BUMP: ${{ github.event.inputs.bump }}
+          PREID: ${{ github.event.inputs.preid }}
+        run: |
+          node scripts/release-bump.mjs
+          NEW_VER=$(node -p "require('./package.json').version")
+          echo "NEW_VER=$NEW_VER" >> $GITHUB_ENV
+          echo "NEW_VER=$NEW_VER" >> $GITHUB_OUTPUT
+
+      - name: Commit & Tag
+        run: |
+          NEW_VER="$NEW_VER"
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add package.json CHANGELOG.md
+          git diff --cached --quiet || git commit -m "chore(release): v$NEW_VER"
+          git tag -a "v$NEW_VER" -m "Release v$NEW_VER"
+          git push origin HEAD:main --follow-tags
+
+      - name: Build & Test (coverage)
+        run: |
+          npm run test:activation || true
+          # activation tests may open VS Code; ensure coverage exists if produced
+          if [ -f coverage/lcov.info ]; then
+            node scripts/coverage-badge.mjs || true
+          fi
+          npm run vscode:prepublish
+
+      - name: Package VSIX
+        run: npm run package
+
+      - name: Generate release notes body
+        id: notes
+        run: |
+          BODY=$(node scripts/extract-release-notes.mjs)
+          echo "body<<'EOF'" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo 'EOF' >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.bump.outputs.NEW_VER }}
+          name: v${{ steps.bump.outputs.NEW_VER }}
+          draft: false
+          prerelease: ${{ contains(github.event.inputs.bump, 'pre') || contains(github.event.inputs.bump, 'rc') }}
+          files: "*.vsix"
+          body: ${{ steps.notes.outputs.body }}
+
+      - name: Publish to Marketplace (optional)
+        if: env.VSCE_PAT != ''
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npm run release

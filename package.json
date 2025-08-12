@@ -21,7 +21,8 @@
     "budget",
     "billing",
     "monitor",
-    "statusbar"
+    "statusbar",
+    "premium"
   ],
   "extensionKind": [
     "ui"
@@ -154,21 +155,45 @@
   "scripts": {
     "vscode:prepublish": "tsc -p ./",
     "compile": "tsc -watch -p ./",
-    "lint": "eslint src --ext .ts",
-    "test": "node --test --test-reporter=spec out/test/**/*.test.js",
-    "package": "vsce package",
-    "release": "npm run vscode:prepublish && vsce publish"
+    "lint": "eslint src --ext .ts --cache --cache-location .eslintcache",
+    "test": "nyc --reporter=text --reporter=lcov node --test --test-reporter=spec out/test/**/*.test.js",
+    "test:activation": "npm run vscode:prepublish && nyc --reporter=text --reporter=lcov node ./out/test/runTests.js",
+    "vsce": "npx @vscode/vsce",
+    "package": "npx @vscode/vsce package",
+    "release": "npm run vscode:prepublish && npx @vscode/vsce publish"
   },
   "devDependencies": {
     "@types/node": "^20.11.17",
     "@types/vscode": "^1.86.0",
     "esbuild": "^0.25.8",
     "typescript": "^5.4.5",
-    "vsce": "^2.24.0",
-    "@vscode/test-electron": "^2.3.9"
+    "@vscode/vsce": "^2.24.0",
+    "@vscode/test-electron": "^2.3.9",
+    "mocha": "^10.4.0",
+    "glob": "^10.3.10",
+    "@types/mocha": "^10.0.6",
+    "@types/glob": "^8.1.0",
+    "nyc": "^15.1.0"
   },
   "dependencies": {
     "@octokit/rest": "^22.0.0",
     "vscode-nls": "^5.2.0"
+  },
+  "nyc": {
+    "extension": [
+      ".js"
+    ],
+    "include": [
+      "out/**/*.js"
+    ],
+    "exclude": [
+      "out/test/**"
+    ],
+    "reporter": [
+      "text",
+      "lcov"
+    ],
+    "all": false,
+    "check-coverage": false
   }
 }

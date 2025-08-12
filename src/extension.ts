@@ -112,6 +112,11 @@ export function activate(context: vscode.ExtensionContext) {
 	// Start auto-refresh
 	startAutoRefresh();
 	startRelativeTimeTicker();
+	return {
+		_test_getStatusBarText,
+		_test_forceStatusBarUpdate,
+		_test_setSpendAndUpdate
+	};
 }
 // applySidebarContext removed with sidebar feature.
 
@@ -452,6 +457,8 @@ let _logChannel: vscode.OutputChannel | undefined;
 let logAutoOpened = false; // track automatic log opening per session
 // Track last icon override warning message so we can refresh banner text when the override changes.
 let lastIconOverrideWarningMessage: string | undefined;
+// Test hook: keep last status bar text in a simple variable for retrieval in tests
+let _test_lastStatusBarText: string | undefined;
 function getLog(): vscode.OutputChannel {
 	if (!_logChannel) {
 		_logChannel = vscode.window.createOutputChannel('Copilot Premium Usage');
@@ -605,6 +612,8 @@ function updateStatusBar() {
 			derivedColor = undefined;
 		}
 		statusItem.text = `$(${icon}) ${percent}% ${bar}${staleTag}`;
+		// Store for tests
+		_test_lastStatusBarText = statusItem.text;
 		statusItem.color = derivedColor;
 		const md = new vscode.MarkdownString(undefined, true);
 		md.isTrusted = true;
@@ -876,4 +885,24 @@ function getNonce() {
 		text += possible.charAt(Math.floor(Math.random() * possible.length));
 	}
 	return text;
+}
+
+export function _test_getStatusBarText(): string | undefined { return _test_lastStatusBarText ?? statusItem?.text; }
+export function _test_forceStatusBarUpdate() {
+	try {
+		if (extCtx && !statusItem) {
+			initStatusBar(extCtx);
+		}
+		updateStatusBar();
+	} catch { }
+}
+export async function _test_setSpendAndUpdate(spend: number, budget?: number) {
+	if (!extCtx) return;
+	try {
+		await extCtx.globalState.update('copilotPremiumUsageMonitor.currentSpend', spend);
+		if (typeof budget === 'number') {
+			await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('budget', budget, vscode.ConfigurationTarget.Global);
+		}
+		updateStatusBar();
+	} catch { /* ignore in tests */ }
 }

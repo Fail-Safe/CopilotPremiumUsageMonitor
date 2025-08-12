@@ -1,6 +1,11 @@
 # Copilot Premium Usage Monitor
 
+![CI](https://img.shields.io/github/actions/workflow/status/Fail-Safe/CopilotPremiumUsageMonitor/ci.yml?branch=main)
+![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Fail-Safe/CopilotPremiumUsageMonitor/main/coverage/coverage-badge.json)
+
 Monitor your GitHub Copilot Premium usage and spend against a monthly budget in VS Code.
+
+> Coverage badge updates when the Release workflow (or a future dedicated coverage job) runs and commits the generated `coverage/coverage-badge.json` to main. Until the first release after adding this badge it may show as 0% or a cached value.
 
 ## Quick Start
 
@@ -86,6 +91,26 @@ code --install-extension fail-safe.copilot-premium-usage-monitor
 ## Release / Changelog
 
 See [CHANGELOG](./CHANGELOG.md).
+
+### Automated Release Workflow
+
+This repo provides a GitHub Actions workflow (Release) that can be triggered manually (workflow_dispatch):
+
+1. Go to Actions → Release → Run workflow.
+2. Choose a bump type: patch | minor | major | prepatch | preminor | premajor | prerelease | auto.
+  - auto: derives bump from commit messages since last tag (BREAKING CHANGE/! => major, feat => minor, else patch).
+3. (Optional) Provide preid (default: beta) for pre* / prerelease bumps.
+4. Workflow enforces a clean working tree (no uncommitted changes) before proceeding.
+5. Steps: bump version + CHANGELOG, commit, tag, build, run activation test (collect coverage), generate coverage badge + release notes (includes CI & coverage shields), package VSIX, create GitHub Release.
+6. Optional Marketplace publish runs only if a VSCE_PAT secret is configured.
+
+### Marketplace Publish Token (VSCE_PAT)
+
+To enable the publish step, create a Visual Studio Marketplace Personal Access Token with publish scope and add it as a repository secret named `VSCE_PAT` (Settings → Secrets and variables → Actions → New repository secret). Omit the secret to skip publishing (useful for dry runs).
+
+### Coverage Badge in Release Notes
+
+Coverage is parsed from `coverage/lcov.info` during the release job. A dynamic JSON badge is generated locally and an approximate static shields.io badge is embedded in the release body along with CI status. (A persistent README badge can be added later if desired.)
 
 ## License
 

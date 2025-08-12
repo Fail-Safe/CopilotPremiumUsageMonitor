@@ -1,0 +1,152 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*.*.*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Lint & Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18.x, 20.x]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Cache ESLint
+        uses: actions/cache@v4
+        with:
+          path: .eslintcache
+          key: eslint-${{ runner.os }}-${{ matrix.node }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**/*.ts') }}
+          restore-keys: |
+            eslint-${{ runner.os }}-${{ matrix.node }}-
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Compile
+        run: npm run vscode:prepublish
+
+      - name: Cache TS build info
+        uses: actions/cache@v4
+        with:
+          path: .tsbuildinfo
+          key: tsc-${{ runner.os }}-${{ matrix.node }}-${{ hashFiles('tsconfig.json') }}-${{ hashFiles('src/**/*.ts') }}
+          restore-keys: |
+            tsc-${{ runner.os }}-${{ matrix.node }}-
+
+      - name: Cache VS Code Test Download
+        id: vscache
+        uses: actions/cache@v4
+        with:
+          path: .vscode-test
+          key: vscode-test-${{ runner.os }}-${{ matrix.node }}-${{ hashFiles('package-lock.json') }}-v1
+          restore-keys: |
+            vscode-test-${{ runner.os }}-${{ matrix.node }}-
+
+      - name: Activation tests (VS Code integration)
+        # VS Code tests need a virtual display; xvfb-run provides that
+        run: xvfb-run -a npm run test:activation
+        env:
+          CI: true
+
+      - name: Upload coverage (lcov)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.node }}
+          path: coverage/lcov.info
+          if-no-files-found: warn
+
+      - name: Upload test logs if present (best-effort)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.node }}
+          path: |
+            *.log
+            *.txt
+          if-no-files-found: ignore
+
+      - name: Upload build artifact (primary Node only)
+        if: matrix.node == '20.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-out
+          path: |
+            out/**
+            .tsbuildinfo
+
+  package:
+    name: Package VSIX
+    needs: build-test
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-out
+        continue-on-error: true
+
+      - name: Build (if artifact missing)
+        if: ${{ !hashFiles('out/extension.js') }}
+        run: npm run vscode:prepublish
+
+      - name: Cache VS Code Test Download (reuse)
+        uses: actions/cache@v4
+        with:
+          path: .vscode-test
+          key: vscode-test-${{ runner.os }}-20x-${{ hashFiles('package-lock.json') }}-v1
+          restore-keys: |
+            vscode-test-${{ runner.os }}-20x-
+
+      - name: Package Extension (.vsix)
+        run: npm run package
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-vsix
+          path: '*.vsix'
+
+      # Optional: automatic publish if VSCE_PAT secret configured
+      - name: Publish to Marketplace (optional)
+        if: env.VSCE_PAT != ''
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          echo "Publishing with vsce using provided VSCE_PAT"
+          npm run release

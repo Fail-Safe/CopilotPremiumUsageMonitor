@@ -6,10 +6,22 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 
 ## [Unreleased]
 ### Planned / Proposed
-- Basic activation test harness.
-- CI workflow for build and packaging.
 - Optional command to force refresh ignoring cache.
-<!-- No unreleased changes yet -->
+<!-- Add new unreleased entries above; when releasing, these move under a version block. -->
+
+### Added
+- Activation integration test harness (launches VS Code, asserts activation + command registration).
+- Automated release workflow (bump, tag, build, package, GitHub Release, optional Marketplace publish).
+- Automatic semantic version detection when selecting bump type "auto" (feat => minor, BREAKING CHANGE/! => major, otherwise patch).
+- Coverage badge generation (lcov parsing) and inclusion with CI status in GitHub Release notes.
+
+### Changed
+- README now includes release process guidance, test instructions, and notes about the VSCE_PAT secret.
+
+### Internal
+- Working tree cleanliness guard in release workflow (fails fast if uncommitted changes exist).
+- Extended `release-bump.mjs` to support auto bump detection and to emit chosen bump type.
+- New helper scripts: `coverage-badge.mjs`, `extract-release-notes.mjs`.
 
 ## [0.4.2] - 2025-08-12
 ### Changed
