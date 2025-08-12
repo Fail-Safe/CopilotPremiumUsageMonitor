@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { computeUsageBar, pickIcon, formatRelativeTime } from './lib/format';
 // Octokit will be loaded lazily to reduce activation overhead
 import * as nls from 'vscode-nls';
 
@@ -517,85 +518,16 @@ function updateStatusBar() {
 		const spend = extCtx.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend') ?? 0;
 		const pct = budget > 0 ? Math.max(0, Math.min(1, spend / budget)) : 0;
 		const percent = Math.round(pct * 100);
-		const segments = 10;
-		const filled = Math.round(pct * segments);
-		const bar = '▰'.repeat(filled) + '▱'.repeat(Math.max(0, segments - filled));
+		const bar = computeUsageBar(percent);
 		const warnAt = Number(cfg.get('warnAtPercent') ?? 80);
 		const dangerAt = Number(cfg.get('dangerAtPercent') ?? 100);
-		// Determine mode to pick a base icon (organization vs personal account)
-		let baseIcon = 'organization';
-		try {
-			const { mode } = getBudgetSpendAndMode();
-			if (mode === 'personal') baseIcon = 'account';
-		} catch { /* noop */ }
-		// Determine stale/error state from last stored sync error
+		const { mode } = getBudgetSpendAndMode();
 		const lastError = extCtx.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
-		let icon = baseIcon;
-		// Allow a user override if provided and we're not currently showing an error icon
-		if (!lastError) {
-			try {
-				const overrideRaw = (cfg.get('statusBarIconOverride') as string | undefined)?.trim();
-				if (overrideRaw) {
-					const candidate = overrideRaw.toLowerCase();
-					const syntacticallyValid = /^[a-z0-9-]{2,}$/i.test(candidate);
-					const known: Record<string, true> = {
-						account: true, organization: true, graph: true, pulse: true, dashboard: true, repo: true, rocket: true, flame: true,
-						star: true, cloud: true, shield: true, zap: true, beaker: true, 'circuit-board': true, bell: true, globe: true,
-						gear: true, history: true, calendar: true, tag: true, info: true, search: true, workspace: true,
-						'folder-active': true, 'symbol-method': true, 'symbol-variable': true, plug: true
-					};
-					if (syntacticallyValid) {
-						if (!known[candidate]) {
-							const message = `Icon override '${candidate}' not recognized. Using default icon.`;
-							if (message !== lastIconOverrideWarningMessage) {
-								getLog().appendLine(`[CopilotPremiumUsageMonitor] statusBarIconOverride '${candidate}' not in known codicon shortlist. Using default icon. See: https://microsoft.github.io/vscode-codicons/dist/codicon.html`);
-								UsagePanel.postMessage({ type: 'iconOverrideWarning', message });
-								try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', message); } catch { /* noop */ }
-								lastIconOverrideWarningMessage = message;
-							}
-						} else {
-							icon = candidate; // accept override
-							if (lastIconOverrideWarningMessage) {
-								UsagePanel.postMessage({ type: 'clearIconOverrideWarning' });
-								try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', undefined); } catch { /* noop */ }
-								lastIconOverrideWarningMessage = undefined;
-							}
-						}
-					} else {
-						const message = `Icon override '${overrideRaw}' is invalid. Using default icon.`;
-						if (message !== lastIconOverrideWarningMessage) {
-							getLog().appendLine(`[CopilotPremiumUsageMonitor] statusBarIconOverride value '${overrideRaw}' is not a valid codicon identifier (must be [a-z0-9-], length >=2). Using default icon.`);
-							UsagePanel.postMessage({ type: 'iconOverrideWarning', message });
-							try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', message); } catch { /* noop */ }
-							lastIconOverrideWarningMessage = message;
-						}
-					}
-				} else {
-					// Override cleared -> remove any stored warning & banner if present
-					if (lastIconOverrideWarningMessage) {
-						UsagePanel.postMessage({ type: 'clearIconOverrideWarning' });
-						try { extCtx.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', undefined); } catch { /* noop */ }
-						lastIconOverrideWarningMessage = undefined;
-					}
-				}
-			} catch { /* noop */ }
-		}
+		const overrideRaw = (cfg.get('statusBarIconOverride') as string | undefined)?.trim() || undefined;
+		const { icon, forcedColor: forcedColorKey, staleTag } = pickIcon({ percent, warnAt, dangerAt, error: lastError, mode: mode as any, override: lastError ? undefined : overrideRaw });
 		let forcedColor: vscode.ThemeColor | undefined;
-		let staleTag = '';
-		if (lastError) {
-			const lower = lastError.toLowerCase();
-			if (lower.includes('404')) icon = 'question';
-			else if (lower.includes('401') || lower.includes('403') || lower.includes('permission')) icon = 'key';
-			else if (lower.includes('network')) icon = 'cloud-offline';
-			else icon = 'warning';
-			staleTag = ' [stale]';
-			// Softer color default: charts.yellow; switch to errorForeground if severe (auth/perms)
-			if (icon === 'key' || icon === 'warning') {
-				forcedColor = new vscode.ThemeColor('errorForeground');
-			} else {
-				forcedColor = new vscode.ThemeColor('charts.yellow');
-			}
-		}
+		if (forcedColorKey === 'errorForeground') forcedColor = new vscode.ThemeColor('errorForeground');
+		else if (forcedColorKey === 'charts.yellow') forcedColor = new vscode.ThemeColor('charts.yellow');
 		const useThemeDefault = cfg.get<boolean>('useThemeStatusColor') !== false; // default true
 		let derivedColor: vscode.ThemeColor | undefined;
 		if (forcedColor) {
@@ -637,42 +569,7 @@ function updateStatusBar() {
 						hour: '2-digit', minute: '2-digit', second: '2-digit'
 					}).format(dt);
 					let rel = '';
-					try {
-						const diffMs = Date.now() - dt.getTime();
-						if (diffMs >= 0) {
-							const sec = Math.floor(diffMs / 1000);
-							if (sec < 1) rel = 'just now';
-							else if (sec < 45) rel = `${sec}s ago`;
-							else if (sec < 90) rel = '1m ago';
-							else {
-								const min = Math.floor(sec / 60);
-								if (min < 60) rel = `${min}m ago`;
-								else {
-									const hr = Math.floor(min / 60);
-									const remMin = min % 60;
-									if (hr < 24) rel = remMin ? `${hr}h ${remMin}m ago` : `${hr}h ago`;
-									else {
-										const day = Math.floor(hr / 24);
-										if (day < 7) rel = `${day}d ago`;
-										else {
-											const wk = Math.floor(day / 7);
-											if (wk < 4) rel = `${wk}w ago`;
-											else {
-												const mo = Math.floor(day / 30);
-												if (mo < 12) rel = `${mo}mo ago`;
-												else {
-													const yr = Math.floor(day / 365);
-													rel = `${yr}y ago`;
-												}
-											}
-										}
-									}
-								}
-							}
-						} else {
-							rel = 'just now';
-						}
-					} catch { /* noop */ }
+					try { rel = formatRelativeTime(dt.getTime()); } catch { /* noop */ }
 					const label = lastError ? localize('cpum.statusbar.lastSuccessfulSync', 'Last successful sync') : localize('cpum.statusbar.lastSync', 'Last sync');
 					// Include timezone offset + IANA zone for clarity (uses tz & offsetStr to avoid unused vars)
 					const tzDisplay = tz ? ` ${tz}` : '';

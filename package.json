@@ -159,6 +159,9 @@
     "lint": "eslint src --ext .ts --cache --cache-location .eslintcache",
     "test": "nyc --reporter=text --reporter=lcov node --test --test-reporter=spec out/test/**/*.test.js",
     "test:activation": "npm run vscode:prepublish && nyc --reporter=text --reporter=lcov node ./out/test/runTests.js",
+    "pretest:coverage": "npm run vscode:prepublish",
+    "test:unit": "node --test --test-reporter=spec out/test/unit/**/*.test.js",
+    "test:coverage": "rimraf .nyc_output coverage && nyc --silent node --test out/test/unit/**/*.test.js && nyc --silent node ./out/test/runTests.js && nyc report --reporter=text --reporter=lcov && node scripts/coverage-badge.mjs",
     "vsce": "npx @vscode/vsce",
     "package": "npx @vscode/vsce package",
     "release": "npm run vscode:prepublish && npx @vscode/vsce publish"
@@ -177,7 +180,8 @@
     "glob": "^10.3.10",
     "@types/mocha": "^10.0.6",
     "@types/glob": "^8.1.0",
-    "nyc": "^15.1.0"
+    "nyc": "^15.1.0",
+    "rimraf": "^5.0.7"
   },
   "dependencies": {
     "@octokit/rest": "^22.0.0",
@@ -188,7 +192,7 @@
       ".js"
     ],
     "include": [
-      "out/**/*.js"
+      "out/extension.js"
     ],
     "exclude": [
       "out/test/**"
@@ -197,7 +201,9 @@
       "text",
       "lcov"
     ],
-    "all": false,
+    "all": true,
+    "instrument": true,
+    "sourceMap": true,
     "check-coverage": false
   }
 }
