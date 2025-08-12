@@ -257,7 +257,8 @@ class UsagePanel {
 						} catch (e: any) {
 							let message = 'Failed to sync usage.';
 							if (e?.status === 404) {
-								message = 'Enhanced Billing endpoint returned 404. Your account likely does not have Enhanced Billing enabled or your PAT does not allow `Plan: read-only` access.';
+								// 404 here generally means the enhanced billing usage endpoint is not available for this user context.
+								message = 'Personal billing usage endpoint returned 404. Common causes: (1) Enhanced Billing / detailed usage not enabled for your account yet, (2) the PAT lacks required Plan read access (generate a classic token with `read:org` is NOT enough; ensure Plan: read-only entitlement), (3) you have no Copilot Premium usage recorded this period, or (4) the feature is still propagating (just enabled – retry later). You can try Org mode if you only have organization usage. Open budgets: https://github.com/settings/billing/budgets';
 							} else if (e?.status === 403) {
 								message = 'Authentication error: Permission denied. Ensure your token or session has Enhanced Billing Plan read access.';
 							} else if (e?.message?.includes('401') || e?.message?.includes('403')) {
@@ -286,9 +287,13 @@ class UsagePanel {
 						updateStatusBar(); // spend may not change, but remove stale tag/icon
 					} catch (e: any) {
 						let message = 'Failed to sync org metrics.';
-						if (e?.message?.includes('401') || e?.message?.includes('403')) {
+						// Provide clearer, user-actionable guidance for common status codes
+						if (e?.status === 404) {
+							// 404 typically means metrics are not available for this org / user context.
+							message = 'Org metrics endpoint returned 404. This usually means Copilot metrics are not available for this organization. Common causes: (1) Copilot not enabled or no active seats, (2) your account is not an org owner / billing manager, (3) metrics are still propagating (newly enabled – try again later), or (4) the organization name is incorrect. You can switch the Mode to Personal if you only need personal spend. Docs: https://docs.github.com/rest/copilot/copilot-metrics#get-copilot-metrics-for-an-organization';
+						} else if (e?.message?.includes('401') || e?.message?.includes('403')) {
 							message = 'Authentication error: Please sign in or provide a valid PAT.';
-						} else if (e?.message?.includes('network')) {
+						} else if (e?.message?.toLowerCase()?.includes('network')) {
 							message = 'Network error: Unable to reach GitHub.';
 						} else if (e?.message) {
 							message = `Failed to sync org metrics: ${e.message}`;

@@ -10,6 +10,11 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 - CI workflow for build and packaging.
 - Optional command to force refresh ignoring cache.
 
+## [0.3.0] - 2025-08-12
+### Changed
+- Clarified 404 error messages for personal Enhanced Billing usage and org metrics with actionable causes and documentation links.
+- Added guidance suggesting switching modes (Personal/Org) when one data source is unavailable.
+
 ## [0.2.1] - 2025-08-11
 ### Added
 - Command: Show Logs (opens extension Output Channel) for easier troubleshooting.
