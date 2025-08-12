@@ -25,7 +25,7 @@ Monitor your GitHub Copilot Premium usage and spend against a monthly budget in 
 
 ## Install
 
-1. (After publish) Open VS Code Extensions view.
+1. Open VS Code Extensions view.
 2. Search for "Copilot Premium Usage Monitor".
 3. Install and reload if prompted.
 
@@ -66,7 +66,6 @@ code --install-extension fail-safe.copilot-premium-usage-monitor
 - Copilot Premium Usage Monitor: Open
 - Copilot Premium Usage Monitor: Sign in to GitHub
 - Copilot Premium Usage Monitor: Choose Organization
-- Copilot Premium Usage Monitor: Show Logs
 - Copilot Premium Usage Monitor: Show Logs (opens the extension Output Channel)
 
 ## Troubleshooting
