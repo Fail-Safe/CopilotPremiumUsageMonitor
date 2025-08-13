@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { computeUsageBar, formatRelativeTime, pickIcon } from '../../lib/format';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Derive defaults from package.json so tests track single source of truth.
+const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../package.json'), 'utf8'));
+const cfgProps = pkg?.contributes?.configuration?.properties || {};
+const DEFAULT_WARN = cfgProps['copilotPremiumUsageMonitor.warnAtPercent']?.default ?? 75;
+const DEFAULT_DANGER = cfgProps['copilotPremiumUsageMonitor.dangerAtPercent']?.default ?? 90;
 
 test('computeUsageBar basic distribution', () => {
     assert.equal(computeUsageBar(0), '▱'.repeat(10));
@@ -37,19 +45,19 @@ test('formatRelativeTime buckets', () => {
 });
 
 test('pickIcon selects error variants and override', () => {
-    const err = pickIcon({ percent: 10, warnAt: 80, dangerAt: 100, error: 'Network failure', mode: 'personal' });
+    const err = pickIcon({ percent: 10, warnAt: DEFAULT_WARN, dangerAt: DEFAULT_DANGER, error: 'Network failure', mode: 'personal' });
     assert.equal(err.icon, 'cloud-offline');
-    const ok = pickIcon({ percent: 10, warnAt: 80, dangerAt: 100, mode: 'personal', override: 'graph' });
+    const ok = pickIcon({ percent: 10, warnAt: DEFAULT_WARN, dangerAt: DEFAULT_DANGER, mode: 'personal', override: 'graph' });
     assert.equal(ok.icon, 'graph');
-    const invalid = pickIcon({ percent: 10, warnAt: 80, dangerAt: 100, mode: 'personal', override: '!!!!' });
+    const invalid = pickIcon({ percent: 10, warnAt: DEFAULT_WARN, dangerAt: DEFAULT_DANGER, mode: 'personal', override: '!!!!' });
     // falls back to base icon (account) for personal mode
     assert.equal(invalid.icon, 'account');
-    const notFound = pickIcon({ percent: 10, warnAt: 80, dangerAt: 100, error: '404 not found', mode: 'org' });
+    const notFound = pickIcon({ percent: 10, warnAt: DEFAULT_WARN, dangerAt: DEFAULT_DANGER, error: '404 not found', mode: 'org' });
     assert.equal(notFound.icon, 'question');
-    const permission = pickIcon({ percent: 10, warnAt: 80, dangerAt: 100, error: '403 permission denied', mode: 'org' });
+    const permission = pickIcon({ percent: 10, warnAt: DEFAULT_WARN, dangerAt: DEFAULT_DANGER, error: '403 permission denied', mode: 'org' });
     assert.equal(permission.icon, 'key');
-    const generic = pickIcon({ percent: 10, warnAt: 80, dangerAt: 100, error: 'Some other error', mode: 'org' });
+    const generic = pickIcon({ percent: 10, warnAt: DEFAULT_WARN, dangerAt: DEFAULT_DANGER, error: 'Some other error', mode: 'org' });
     assert.equal(generic.icon, 'warning');
-    const unknownValidOverride = pickIcon({ percent: 10, warnAt: 80, dangerAt: 100, mode: 'org', override: 'unknownicon' });
+    const unknownValidOverride = pickIcon({ percent: 10, warnAt: DEFAULT_WARN, dangerAt: DEFAULT_DANGER, mode: 'org', override: 'unknownicon' });
     assert.equal(unknownValidOverride.icon, 'organization');
 });
