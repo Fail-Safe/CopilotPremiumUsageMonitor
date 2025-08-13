@@ -31,7 +31,7 @@ suite('Coverage & Org metrics parsing', () => {
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'ORG_TOKEN', vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', 'acme', vscode.ConfigurationTarget.Global);
         api._test_resetPostedMessages();
-        api._test_setOctokitFactory((auth?: string) => ({
+        api._test_setOctokitFactory((_auth?: string) => ({
             request: async (route: string) => {
                 if (route === 'GET /orgs/{org}/copilot/metrics') {
                     return {

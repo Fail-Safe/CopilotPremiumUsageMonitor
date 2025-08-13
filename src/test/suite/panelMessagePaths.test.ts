@@ -48,7 +48,7 @@ suite('Panel message paths batch1', () => {
 
     test('openExternal only allows http(s) and ignores others', async () => {
         const api = await activate();
-        let opened: string[] = [];
+        const opened: string[] = [];
         const orig = (vscode.env as any).openExternal;
         (vscode.env as any).openExternal = (uri: vscode.Uri) => { opened.push(uri.toString()); return Promise.resolve(true); };
         try {

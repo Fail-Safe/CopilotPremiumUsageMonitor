@@ -53,7 +53,7 @@ const KNOWN_ICONS: Record<string, true> = {
 };
 
 export function pickIcon(input: IconSelectionInput): IconSelectionResult {
-    let baseIcon = input.mode === 'personal' ? 'account' : 'organization';
+    const baseIcon = input.mode === 'personal' ? 'account' : 'organization';
     let icon = baseIcon;
     let forcedColor: IconSelectionResult['forcedColor'];
     let staleTag = '';

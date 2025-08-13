@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { computeUsageBar, pickIcon, formatRelativeTime } from './lib/format';
 import * as nls from 'vscode-nls';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const localize = nls.loadMessageBundle();
 
@@ -10,7 +12,7 @@ let statusItem: vscode.StatusBarItem | undefined;
 let statusBarMissingWarned = false; // one-time gate for missing status bar warning
 let _logChannel: vscode.OutputChannel | undefined;
 let logAutoOpened = false; // track automatic log opening per session
-let lastIconOverrideWarningMessage: string | undefined; // track override changes
+// (Removed unused lastIconOverrideWarningMessage to satisfy lint)
 let _test_lastStatusBarText: string | undefined; // test cache
 let _test_postedMessages: any[] = []; // test capture of webview postMessage payloads
 let _test_helpCount = 0; // test: number of help invocations
@@ -24,8 +26,9 @@ function _test_getLastHelpInvoked() { return _test_lastHelpInvoked; }
 type OctokitModule = typeof import('@octokit/rest');
 let _octokitModule: OctokitModule | undefined;
 let _testOctokitFactory: ((auth?: string) => any) | undefined;
+const noop = () => { /* intentional */ };
 async function getOctokit(auth?: string) {
-	if (_testOctokitFactory) { try { return _testOctokitFactory(auth); } catch { /* noop */ } }
+	if (_testOctokitFactory) { try { return _testOctokitFactory(auth); } catch (e) { noop(); } }
 	if (!_octokitModule) { _octokitModule = await import('@octokit/rest'); }
 	const { Octokit } = _octokitModule;
 	return new Octokit({ auth, request: { headers: { 'X-GitHub-Api-Version': '2022-11-28' } } });
@@ -93,7 +96,47 @@ class UsagePanel {
 	}
 	dispose() { UsagePanel.currentPanel = undefined; try { this.panel.dispose(); } catch { /* noop */ } while (this.disposables.length) { try { this.disposables.pop()?.dispose(); } catch { /* noop */ } } }
 	private post(data: any) { if (data && typeof data === 'object') { try { _test_postedMessages.push(data); } catch { /* noop */ } } if (data.type === 'config') { const lastError = this.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError'); if (lastError) { const errMsg = { type: 'error', message: lastError }; this.panel.webview.postMessage(errMsg); try { _test_postedMessages.push(errMsg); } catch { /* noop */ } } const iconWarn = this.globalState.get<string>('copilotPremiumUsageMonitor.iconOverrideWarning'); if (iconWarn) { const warnMsg = { type: 'iconOverrideWarning', message: iconWarn }; this.panel.webview.postMessage(warnMsg); try { _test_postedMessages.push(warnMsg); } catch { /* noop */ } } } this.panel.webview.postMessage(data); }
-	private get webviewHtml(): string { const webview = this.panel.webview; const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.js')); const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.css')); const nonce = getNonce(); return `<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\" />\n<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src ${webview.cspSource} https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n<link href=\"${styleUri}\" rel=\"stylesheet\" />\n<title>Copilot Premium Usage Monitor</title>\n</head>\n<body>\n<div id=\"error-banner-container\"></div>\n<div id=\"app\">\n<h2>${localize('cpum.title', 'Copilot Premium Usage Monitor')}</h2>\n<div id=\"summary\"></div>\n<div class=\"controls controls-row\">\n<div class=\"btn-group\">\n<button class=\"btn\" id=\"refresh\">${localize('cpum.refresh', 'Refresh')}</button>\n<button class=\"btn\" id=\"signIn\">${localize('cpum.signIn', 'Sign in to GitHub')}</button>\n<button class=\"btn\" id=\"openSettings\">${localize('cpum.settings', 'Settings')}</button>\n<button class=\"btn\" id=\"help\" title=\"${localize('cpum.help.tooltip', 'Open documentation and setup guidance')}\">${localize('cpum.help', 'Help')}</button>\n</div>\n<div class=\"right-group\">\n<label id=\"modeRow\">${localize('cpum.mode', 'Mode')}:\n<select id=\"mode\">\n<option value=\"auto\" selected>${localize('cpum.mode.auto', 'Auto')}</option>\n<option value=\"personal\">${localize('cpum.mode.personal', 'Personal')}</option>\n<option value=\"org\">${localize('cpum.mode.org', 'Organization')}</option>\n</select>\n</label>\n</div>\n</div>\n</div>\n<script nonce=\"${nonce}\" src=\"${scriptUri}\"></script>\n</body>\n</html>`; }
+	private get webviewHtml(): string {
+		const webview = this.panel.webview;
+		const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.js'));
+		const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.css'));
+		const nonce = getNonce();
+		return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link href="${styleUri}" rel="stylesheet" />
+<title>Copilot Premium Usage Monitor</title>
+</head>
+<body>
+<div id="error-banner-container"></div>
+<div id="app">
+<h2>${localize('cpum.title', 'Copilot Premium Usage Monitor')}</h2>
+<div id="summary"></div>
+<div class="controls controls-row">
+<div class="btn-group">
+<button class="btn" id="refresh">${localize('cpum.refresh', 'Refresh')}</button>
+<button class="btn" id="signIn">${localize('cpum.signIn', 'Sign in to GitHub')}</button>
+<button class="btn" id="openSettings">${localize('cpum.settings', 'Settings')}</button>
+<button class="btn" id="help" title="${localize('cpum.help.tooltip', 'Open documentation and setup guidance')}">${localize('cpum.help', 'Help')}</button>
+</div>
+<div class="right-group">
+<label id="modeRow">${localize('cpum.mode', 'Mode')}:
+<select id="mode">
+<option value="auto" selected>${localize('cpum.mode.auto', 'Auto')}</option>
+<option value="personal">${localize('cpum.mode.personal', 'Personal')}</option>
+<option value="org">${localize('cpum.mode.org', 'Organization')}</option>
+</select>
+</label>
+</div>
+</div>
+</div>
+<script nonce="${nonce}" src="${scriptUri}"></script>
+</body>
+</html>`;
+	}
 	private async maybeShowFirstRunNotice() { const key = 'copilotPremiumUsageMonitor.firstRunShown'; const shown = this.globalState.get<boolean>(key); const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const disabled = cfg.get<boolean>('disableFirstRunTips') === true || this.globalState.get<boolean>('copilotPremiumUsageMonitor.firstRunDisabled') === true; if (shown || disabled) return; this.post({ type: 'notice', severity: 'info', text: localize('cpum.firstRun.tip', "Tip: Org metrics use your GitHub sign-in (read:org). Personal spend needs a PAT with 'Plan: read-only'. Avoid syncing your PAT. Click Help to learn more."), helpAction: true, dismissText: localize('cpum.firstRun.dismiss', "Don't show again"), learnMoreText: localize('cpum.firstRun.learnMore', 'Learn more'), openBudgetsText: localize('cpum.firstRun.openBudgets', 'Open budgets'), budgetsUrl: 'https://github.com/settings/billing/budgets' }); await this.globalState.update(key, true); }
 	private async setSpend(v: number) { await this.globalState.update('copilotPremiumUsageMonitor.currentSpend', v); updateStatusBar(); }
 	private getSpend(): number { const stored = this.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend'); if (typeof stored === 'number') return stored; const cfg = vscode.workspace.getConfiguration(); const legacy = cfg.get<number>('copilotPremiumMonitor.currentSpend', 0); return legacy ?? 0; }
@@ -103,7 +146,16 @@ class UsagePanel {
 // Test hook to drive message handler without an actual webview post
 (UsagePanel as any)._test_invokeMessage = (msg: any) => { try { const p = UsagePanel.currentPanel as any; p?._dispatch && p._dispatch(msg); } catch { /* noop */ } };
 
-function maybeDumpExtensionHostCoverage() { try { const dir = process.env.CPUM_COVERAGE_DIR; const cov: any = (globalThis as any).__coverage__; if (dir && cov) { const fs = require('fs'); const path = require('path'); const file = path.join(dir, 'extension-host-final.json'); fs.writeFileSync(file, JSON.stringify(cov), 'utf8'); } } catch { /* noop */ } }
+function maybeDumpExtensionHostCoverage() {
+	try {
+		const dir = process.env.CPUM_COVERAGE_DIR;
+		const cov: any = (globalThis as any).__coverage__;
+		if (dir && cov) {
+			const file = path.join(dir, 'extension-host-final.json');
+			fs.writeFileSync(file, JSON.stringify(cov), 'utf8');
+		}
+	} catch (e) { noop(); }
+}
 
 export function activate(context: vscode.ExtensionContext) {
 	extCtx = context;
