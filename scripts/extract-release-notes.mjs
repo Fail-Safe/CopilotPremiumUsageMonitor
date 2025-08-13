@@ -9,11 +9,21 @@ const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
 const version = pkg.version;
 const changelog = fs.readFileSync(changelogPath, 'utf8');
 
-// Extract section for current version
-const sectionRegex = new RegExp(`## \\[${version}\\] - .*?(?:\n## \\[|$)`, 's');
-const match = changelog.match(sectionRegex);
+// Extract section for current version; if missing, promote Unreleased block to this version with today's date.
+const versionSectionRegex = new RegExp(`## \\[${version}\\] - .*?(?:\n## \\[|$)`, 's');
+let match = changelog.match(versionSectionRegex);
 let body = '';
-if (match) {
+if (!match) {
+    const unreleasedRegex = /## \[Unreleased\][\s\S]*?(?=\n## \[|$)/;
+    const unreleasedMatch = changelog.match(unreleasedRegex);
+    if (unreleasedMatch) {
+        const unreleasedBlock = unreleasedMatch[0];
+        const dateStr = new Date().toISOString().slice(0, 10);
+        // Convert first line '## [Unreleased]' to new version header with date
+        const promoted = unreleasedBlock.replace(/## \[Unreleased\].*/, `## [${version}] - ${dateStr}`);
+        body = promoted.trim();
+    }
+} else {
     body = match[0].trim();
 }
 
