@@ -6,8 +6,6 @@
 
 Monitor your GitHub Copilot Premium usage and spend against a monthly budget in VS Code.
 
-> Coverage badge updates when the Release workflow (or a future dedicated coverage job) runs and commits the generated `coverage/coverage-badge.json` to main. Until the first release after adding this badge it may show as 0% or a cached value.
-
 ## Quick Start
 
 1. Install extension (Marketplace search: Copilot Premium Usage Monitor).
