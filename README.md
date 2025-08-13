@@ -2,6 +2,7 @@
 
 ![CI](https://img.shields.io/github/actions/workflow/status/Fail-Safe/CopilotPremiumUsageMonitor/ci.yml?branch=main)
 ![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Fail-Safe/CopilotPremiumUsageMonitor/main/coverage/coverage-badge.json)
+![Tests](https://img.shields.io/github/actions/workflow/status/Fail-Safe/CopilotPremiumUsageMonitor/ci.yml?label=tests&branch=main)
 
 Monitor your GitHub Copilot Premium usage and spend against a monthly budget in VS Code.
 
