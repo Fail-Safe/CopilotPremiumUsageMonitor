@@ -166,7 +166,9 @@
     "clean": "bash scripts/clean-artifacts.sh",
     "prepublishOnly": "npm run clean && npm run vscode:prepublish",
     "preversion": "npm run clean",
-  "clean:full": "bash scripts/clean-artifacts.sh && git clean -fdX || true",
+    "prepack": "npm run clean && npm run vscode:prepublish",
+    "postversion": "git push --follow-tags",
+    "clean:full": "bash scripts/clean-artifacts.sh && git clean -fdX || true",
     "vsce": "npx @vscode/vsce",
     "package": "npx @vscode/vsce package",
     "release": "npm run vscode:prepublish && npx @vscode/vsce publish"
