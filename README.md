@@ -50,8 +50,8 @@ code --install-extension fail-safe.copilot-premium-usage-monitor
 - copilotPremiumUsageMonitor.mode — auto | personal | org
 - copilotPremiumUsageMonitor.org — Organization login (for Organization mode)
 - copilotPremiumUsageMonitor.token — PAT (`Plan: read‑only`) for personal spend
-- copilotPremiumUsageMonitor.warnAtPercent — default 80
-- copilotPremiumUsageMonitor.dangerAtPercent — default 100
+- copilotPremiumUsageMonitor.warnAtPercent — default 75 (set 0 to disable warning color)
+- copilotPremiumUsageMonitor.dangerAtPercent — default 90 (set 0 to disable danger color)
 - copilotPremiumUsageMonitor.refreshIntervalMinutes — default 15 (min 5)
 - copilotPremiumUsageMonitor.statusBarAlignment — left | right (default left)
 - copilotPremiumUsageMonitor.showLogOnError — auto-open log channel on first error (default false)

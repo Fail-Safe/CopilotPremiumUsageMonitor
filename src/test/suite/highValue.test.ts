@@ -22,7 +22,7 @@ suite('High value behaviors', () => {
         await api._test_setSpendAndUpdate(60); // 60% warn
         api._test_forceStatusBarUpdate();
         const warnColor = api._test_getStatusBarColor();
-        await api._test_setSpendAndUpdate(80); // 80% danger
+        await api._test_setSpendAndUpdate(75); // 75% danger
         api._test_forceStatusBarUpdate();
         const dangerColor = api._test_getStatusBarColor();
         // When useThemeStatusColor=false normal should be charts.green; warn charts.yellow; danger charts.red
@@ -78,5 +78,24 @@ suite('High value behaviors', () => {
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.configureOrg');
         await new Promise(r => setTimeout(r, 60));
         assert.strictEqual(api._test_getLogAutoOpened?.(), true, 'Auto-open flag should remain true');
+    });
+
+    test('threshold=0 disables warn/danger coloring', async () => {
+        const api = await activateWithEnv();
+        // Force colorization (not theme default) so we can compare explicit color keys
+        await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('useThemeStatusColor', false, vscode.ConfigurationTarget.Global);
+        await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('warnAtPercent', 0, vscode.ConfigurationTarget.Global);
+        await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('dangerAtPercent', 0, vscode.ConfigurationTarget.Global);
+        // Set low spend and capture baseline color
+        await api._test_setSpendAndUpdate(5, 100); // 5%
+        api._test_forceStatusBarUpdate();
+        const baseColor = api._test_getStatusBarColor();
+        // Drive spend above what would normally be warn/danger
+        await api._test_setSpendAndUpdate(95); // 95%
+        api._test_forceStatusBarUpdate();
+        const highColor = api._test_getStatusBarColor();
+        // With thresholds disabled both colors should match and not be yellow/red
+        assert.strictEqual(baseColor, highColor, `Expected same color with thresholds disabled (base=${baseColor}, high=${highColor})`);
+        assert.ok(!['charts.yellow', 'charts.red'].includes(highColor || ''), `Color should not switch to warning/danger when thresholds disabled (got ${highColor})`);
     });
 });

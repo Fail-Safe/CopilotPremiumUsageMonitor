@@ -26,6 +26,9 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.10);
     border: 1px solid var(--vscode-editorError-foreground, #a00);
     z-index: 10001;
+    /* Prevent long validation or server messages from being truncated */
+    white-space: normal;
+    word-break: break-word;
 }
 
 body {

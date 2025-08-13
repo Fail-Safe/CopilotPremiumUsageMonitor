@@ -51,9 +51,14 @@ function showErrorBanner(msg) {
 
   function renderSummary({ budget, spend, pct, warnAtPercent, dangerAtPercent }) {
     const summary = $('#summary');
-    const warn = Number(warnAtPercent ?? 80);
-    const danger = Number(dangerAtPercent ?? 100);
-    const barColor = pct >= danger ? '#e51400' : pct >= warn ? '#f0ad4e' : '#2d7d46';
+    const warnRaw = Number(warnAtPercent ?? 75);
+    const dangerRaw = Number(dangerAtPercent ?? 90);
+    // Treat 0 as disabled (never trigger) to mirror status bar logic
+    const warn = warnRaw > 0 ? warnRaw : Infinity;
+    const danger = dangerRaw > 0 ? dangerRaw : Infinity;
+    let barColor = '#2d7d46'; // base green
+    if (pct >= danger) barColor = '#e51400';
+    else if (pct >= warn) barColor = '#f0ad4e';
     const startColor = lighten(barColor, 0.18);
     summary.innerHTML = `
       <div class="meter">

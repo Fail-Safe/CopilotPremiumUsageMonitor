@@ -2,7 +2,7 @@
   "name": "copilot-premium-usage-monitor",
   "displayName": "Copilot Premium Usage Monitor",
   "description": "Monitor usage and budget for Copilot Premium Request SKU from VS Code.",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "publisher": "fail-safe",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -71,17 +71,17 @@
       "properties": {
         "copilotPremiumUsageMonitor.warnAtPercent": {
           "type": "number",
-          "default": 80,
-          "minimum": 1,
+          "default": 75,
+          "minimum": 0,
           "maximum": 100,
-          "description": "Warn color threshold (percent used)."
+          "description": "Warn color threshold (percent used). Set to 0 to disable warning color."
         },
         "copilotPremiumUsageMonitor.dangerAtPercent": {
           "type": "number",
-          "default": 100,
-          "minimum": 1,
+          "default": 90,
+          "minimum": 0,
           "maximum": 100,
-          "description": "Danger color threshold (percent used)."
+          "description": "Danger color threshold (percent used). Set to 0 to disable danger color."
         },
         "copilotPremiumUsageMonitor.refreshIntervalMinutes": {
           "type": "number",

@@ -13,6 +13,16 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 ### Changed
 - Changelog housekeeping: deduplicated 0.4.3 duplicate entries and reset Unreleased placeholder.
 
+## [0.4.6] - 2025-08-13
+### Added
+- Ability to disable warn / danger coloring by setting thresholds to 0.
+### Changed
+- Centralized threshold defaults: extension now reads warn/danger defaults dynamically from `package.json` (single source of truth).
+- README updated to document 0=disable behavior and single-source defaults.
+### Internal
+- Refactored fallback literals (75/90) to use dynamic manifest-driven constants; updated tests to derive defaults from manifest.
+- Added integration test to verify threshold=0 disables warn/danger status bar coloring.
+
 ## [0.4.5] - 2025-08-13
 ### Planned / Proposed
 - Optional command to force refresh ignoring cache.

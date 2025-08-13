@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { computeUsageBar, pickIcon, formatRelativeTime } from './lib/format';
+import { DEFAULT_WARN_AT_PERCENT, DEFAULT_DANGER_AT_PERCENT } from './constants';
 import * as nls from 'vscode-nls';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -66,12 +67,22 @@ class UsagePanel {
 					try {
 						const cfgNew = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
 						const cfgOld = vscode.workspace.getConfiguration('copilotPremiumMonitor');
-						let hasSession = false; try { const s = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: false }); hasSession = !!s; } catch (e) { noop(); }
 						const hasPat = !!((cfgNew.get('token') as string | undefined)?.trim());
-						this.post({ type: 'config', config: { budget: (cfgNew.get('budget') as number | undefined) ?? (cfgOld.get('budget') as number | undefined), org: (cfgNew.get('org') as string | undefined) ?? (cfgOld.get('org') as string | undefined), mode: (cfgNew.get('mode') as string | undefined) ?? 'auto', warnAtPercent: Number(cfgNew.get('warnAtPercent') ?? 80), dangerAtPercent: Number(cfgNew.get('dangerAtPercent') ?? 100), hasPat, hasSession } });
+						// Post immediately (assume no session yet) to avoid test timing flake
+						const baseConfig = { budget: (cfgNew.get('budget') as number | undefined) ?? (cfgOld.get('budget') as number | undefined), org: (cfgNew.get('org') as string | undefined) ?? (cfgOld.get('org') as string | undefined), mode: (cfgNew.get('mode') as string | undefined) ?? 'auto', warnAtPercent: Number(cfgNew.get('warnAtPercent') ?? DEFAULT_WARN_AT_PERCENT), dangerAtPercent: Number(cfgNew.get('dangerAtPercent') ?? DEFAULT_DANGER_AT_PERCENT), hasPat, hasSession: false };
+						this.post({ type: 'config', config: baseConfig });
+						// Fire-and-forget session detection; if found, send updated config
+						(async () => {
+							try {
+								const s = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: false });
+								if (s) {
+									this.post({ type: 'config', config: { ...baseConfig, hasSession: true } });
+								}
+							} catch (e2) { noop(); }
+						})();
 					} catch (e) {
 						// Guaranteed fallback config so tests relying on config message never fail silently
-						this.post({ type: 'config', config: { budget: 0, org: undefined, mode: 'auto', warnAtPercent: 80, dangerAtPercent: 100, hasPat: false, hasSession: false }, error: true });
+						this.post({ type: 'config', config: { budget: 0, org: undefined, mode: 'auto', warnAtPercent: DEFAULT_WARN_AT_PERCENT, dangerAtPercent: DEFAULT_DANGER_AT_PERCENT, hasPat: false, hasSession: false }, error: true });
 						noop();
 					}
 					break;
@@ -86,10 +97,43 @@ class UsagePanel {
 					const incomingMode = (message.mode as string | undefined) ?? (cfgR.get('mode') as string | undefined) ?? 'auto';
 					const mode = incomingMode === 'personal' || incomingMode === 'org' ? incomingMode : 'auto';
 					const effectiveMode = mode === 'auto' ? (org ? 'org' : 'personal') : mode;
-					if (effectiveMode === 'personal') {
-						try { const octokit = await getOctokit(token); const me = await octokit.request('GET /user'); const login = me.data?.login as string | undefined; if (!login) throw new Error('Cannot determine authenticated username.'); const now = new Date(); const year = now.getUTCFullYear(); const month = now.getUTCMonth() + 1; const billing = await fetchUserBillingUsage(login, token, { year, month }); try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch (e) { noop(); } try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch (e) { noop(); } await this.setSpend(billing.totalNetAmount); this.post({ type: 'billing', billing }); this.post({ type: 'clearError' }); this.update(); } catch (e: any) { let msg = 'Failed to sync usage.'; if (e?.status === 404) msg = 'Personal billing usage endpoint returned 404.'; else if (e?.status === 403) msg = 'Authentication error: Permission denied.'; else if (e?.message?.includes('401') || e?.message?.includes('403')) msg = 'Authentication error: Please sign in or provide a valid PAT.'; else if (e?.message?.toLowerCase()?.includes('network')) msg = 'Network error: Unable to reach GitHub.'; else if (e?.message) msg = `Failed to sync usage: ${e.message}`; this.post({ type: 'error', message: msg }); await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); vscode.window.showErrorMessage(msg); maybeAutoOpenLog(); updateStatusBar(); } break;
+					if (effectiveMode === 'org') {
+						let allowFallback = mode === 'auto';
+						try {
+							const metrics = await fetchOrgCopilotMetrics(org!, token, {});
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch (e) { noop(); }
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch (e) { noop(); }
+							this.post({ type: 'metrics', metrics }); this.post({ type: 'clearError' }); updateStatusBar();
+							break;
+						} catch (e: any) {
+							let msg = 'Failed to sync org metrics.';
+							if (e?.status === 404) { msg = 'Org metrics endpoint returned 404.'; allowFallback = false; }
+							else if (e?.message?.includes('401') || e?.message?.includes('403')) { msg = 'Authentication error: Please sign in or provide a valid PAT.'; allowFallback = false; }
+							else if (e?.message?.toLowerCase()?.includes('network')) { msg = 'Network error: Unable to reach GitHub.'; }
+							else if (e?.message) { msg = `Failed to sync org metrics: ${e.message}`; }
+							if (!allowFallback) {
+								this.post({ type: 'error', message: msg }); await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); vscode.window.showErrorMessage(msg); maybeAutoOpenLog(); updateStatusBar();
+								break;
+							}
+						}
 					}
-					try { const metrics = await fetchOrgCopilotMetrics(org!, token, {}); try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch (e) { noop(); } try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch (e) { noop(); } this.post({ type: 'metrics', metrics }); this.post({ type: 'clearError' }); updateStatusBar(); } catch (e: any) { let msg = 'Failed to sync org metrics.'; if (e?.status === 404) msg = 'Org metrics endpoint returned 404.'; else if (e?.message?.includes('401') || e?.message?.includes('403')) msg = 'Authentication error: Please sign in or provide a valid PAT.'; else if (e?.message?.toLowerCase()?.includes('network')) msg = 'Network error: Unable to reach GitHub.'; else if (e?.message) msg = `Failed to sync org metrics: ${e.message}`; this.post({ type: 'error', message: msg }); await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); vscode.window.showErrorMessage(msg); maybeAutoOpenLog(); updateStatusBar(); }
+					if (effectiveMode === 'personal' || mode === 'auto') {
+						try {
+							const octokit = await getOctokit(token); const me = await octokit.request('GET /user'); const login = me.data?.login as string | undefined; if (!login) throw new Error('Cannot determine authenticated username.');
+							const now = new Date(); const year = now.getUTCFullYear(); const month = now.getUTCMonth() + 1; const billing = await fetchUserBillingUsage(login, token, { year, month });
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch (e) { noop(); }
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch (e) { noop(); }
+							await this.setSpend(billing.totalNetAmount); this.post({ type: 'billing', billing }); this.post({ type: 'clearError' }); this.update();
+						} catch (e: any) {
+							let msg = 'Failed to sync usage.';
+							if (e?.status === 404) msg = 'Personal billing usage endpoint returned 404.';
+							else if (e?.status === 403) msg = 'Authentication error: Permission denied.';
+							else if (e?.message?.includes('401') || e?.message?.includes('403')) msg = 'Authentication error: Please sign in or provide a valid PAT.';
+							else if (e?.message?.toLowerCase()?.includes('network')) msg = 'Network error: Unable to reach GitHub.';
+							else if (e?.message) msg = `Failed to sync usage: ${e.message}`;
+							this.post({ type: 'error', message: msg }); await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); vscode.window.showErrorMessage(msg); maybeAutoOpenLog(); updateStatusBar();
+						}
+					}
 					break;
 				}
 				case 'signIn': { await UsagePanel.ensureGitHubSession(); break; }
@@ -146,7 +190,7 @@ class UsagePanel {
 	private async maybeShowFirstRunNotice() { const key = 'copilotPremiumUsageMonitor.firstRunShown'; const shown = this.globalState.get<boolean>(key); const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const disabled = cfg.get<boolean>('disableFirstRunTips') === true || this.globalState.get<boolean>('copilotPremiumUsageMonitor.firstRunDisabled') === true; if (shown || disabled) return; this.post({ type: 'notice', severity: 'info', text: localize('cpum.firstRun.tip', "Tip: Org metrics use your GitHub sign-in (read:org). Personal spend needs a PAT with 'Plan: read-only'. Avoid syncing your PAT. Click Help to learn more."), helpAction: true, dismissText: localize('cpum.firstRun.dismiss', "Don't show again"), learnMoreText: localize('cpum.firstRun.learnMore', 'Learn more'), openBudgetsText: localize('cpum.firstRun.openBudgets', 'Open budgets'), budgetsUrl: 'https://github.com/settings/billing/budgets' }); await this.globalState.update(key, true); }
 	private async setSpend(v: number) { await this.globalState.update('copilotPremiumUsageMonitor.currentSpend', v); updateStatusBar(); }
 	private getSpend(): number { const stored = this.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend'); if (typeof stored === 'number') return stored; const cfg = vscode.workspace.getConfiguration(); const legacy = cfg.get<number>('copilotPremiumMonitor.currentSpend', 0); return legacy ?? 0; }
-	private update() { this.panel.webview.html = this.webviewHtml; const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const budget = Number(config.get('budget') ?? 0); const spend = this.getSpend(); const pct = budget > 0 ? Math.min(100, Math.round((spend / budget) * 100)) : 0; const warnAtPercent = Number(config.get('warnAtPercent') ?? 80); const dangerAtPercent = Number(config.get('dangerAtPercent') ?? 100); setTimeout(() => this.post({ type: 'summary', budget, spend, pct, warnAtPercent, dangerAtPercent }), 50); }
+	private update() { this.panel.webview.html = this.webviewHtml; const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const budget = Number(config.get('budget') ?? 0); const spend = this.getSpend(); const pct = budget > 0 ? Math.min(100, Math.round((spend / budget) * 100)) : 0; const warnAtPercent = Number(config.get('warnAtPercent') ?? DEFAULT_WARN_AT_PERCENT); const dangerAtPercent = Number(config.get('dangerAtPercent') ?? DEFAULT_DANGER_AT_PERCENT); setTimeout(() => this.post({ type: 'summary', budget, spend, pct, warnAtPercent, dangerAtPercent }), 50); }
 }
 
 // Test hook to drive message handler without an actual webview post
@@ -192,9 +236,20 @@ export function activate(context: vscode.ExtensionContext) {
 	const enableFirstRun = vscode.commands.registerCommand('copilotPremiumUsageMonitor.enableFirstRunNotice', async () => { await context.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', false); await context.globalState.update('copilotPremiumUsageMonitor.firstRunShown', false); await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', false, vscode.ConfigurationTarget.Global); vscode.window.showInformationMessage(localize('cpum.enableFirstRun.restored', 'Help banner will show again next time you open the panel.')); });
 	context.subscriptions.push(openPanel, signIn, configureOrg, manage, showLogs, enableFirstRun);
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
-		if (e.affectsConfiguration('copilotPremiumUsageMonitor.budget') || e.affectsConfiguration('copilotPremiumUsageMonitor.mode') || e.affectsConfiguration('copilotPremiumUsageMonitor.org') || e.affectsConfiguration('copilotPremiumUsageMonitor.warnAtPercent') || e.affectsConfiguration('copilotPremiumUsageMonitor.dangerAtPercent') || e.affectsConfiguration('copilotPremiumUsageMonitor.statusBarIconOverride')) updateStatusBar();
+		const affectsCore = e.affectsConfiguration('copilotPremiumUsageMonitor.budget')
+			|| e.affectsConfiguration('copilotPremiumUsageMonitor.mode')
+			|| e.affectsConfiguration('copilotPremiumUsageMonitor.org')
+			|| e.affectsConfiguration('copilotPremiumUsageMonitor.warnAtPercent')
+			|| e.affectsConfiguration('copilotPremiumUsageMonitor.dangerAtPercent')
+			|| e.affectsConfiguration('copilotPremiumUsageMonitor.statusBarIconOverride')
+			|| e.affectsConfiguration('copilotPremiumUsageMonitor.useThemeStatusColor');
+		if (affectsCore) {
+			try { updateStatusBar(); } catch { /* noop */ }
+			// Force panel summary refresh to pick up threshold color logic changes immediately
+			try { UsagePanel.currentPanel?.['update'](); } catch { /* noop */ }
+		}
 		if (e.affectsConfiguration('copilotPremiumUsageMonitor.refreshIntervalMinutes')) restartAutoRefresh();
-		if (e.affectsConfiguration('copilotPremiumUsageMonitor.statusBarAlignment')) { initStatusBar(context); updateStatusBar(); }
+		if (e.affectsConfiguration('copilotPremiumUsageMonitor.statusBarAlignment')) { initStatusBar(context); try { updateStatusBar(); } catch { /* noop */ } }
 	}));
 	initStatusBar(context); updateStatusBar();
 	startAutoRefresh(); startRelativeTimeTicker();
@@ -268,8 +323,11 @@ function updateStatusBar() {
 		const pct = budget > 0 ? Math.max(0, Math.min(1, spend / budget)) : 0;
 		const percent = Math.round(pct * 100);
 		const bar = computeUsageBar(percent);
-		const warnAt = Number(cfg.get('warnAtPercent') ?? 80);
-		const dangerAt = Number(cfg.get('dangerAtPercent') ?? 100);
+		const warnAtRaw = Number(cfg.get('warnAtPercent') ?? DEFAULT_WARN_AT_PERCENT);
+		const dangerAtRaw = Number(cfg.get('dangerAtPercent') ?? DEFAULT_DANGER_AT_PERCENT);
+		// Allow users to disable thresholds by setting them to 0
+		const warnAt = warnAtRaw > 0 ? warnAtRaw : Infinity;
+		const dangerAt = dangerAtRaw > 0 ? dangerAtRaw : Infinity;
 		const { mode } = getBudgetSpendAndMode();
 		const lastError = extCtx.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
 		const overrideRaw = (cfg.get('statusBarIconOverride') as string | undefined)?.trim() || undefined;
