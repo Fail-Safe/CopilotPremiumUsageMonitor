@@ -6,5 +6,7 @@ node_modules/
 # Coverage artifacts (generated locally / in CI)
 .nyc_output/
 .node_coverage/
-coverage/
+# Keep coverage artifacts ignored except badge JSON for README shield
+coverage/*
+!coverage/coverage-badge.json
 .tsbuildinfo
