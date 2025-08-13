@@ -10,6 +10,8 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
 <!-- Placeholder for upcoming release notes. Add new sections (Added/Changed/Fixed/etc.) here. -->
+### Changed
+- Changelog housekeeping: deduplicated 0.4.3 duplicate entries and reset Unreleased placeholder.
 
 ## [0.4.3] - 2025-08-13
 ### Planned / Proposed
