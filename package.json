@@ -163,6 +163,8 @@
     "test:unit": "node --test --test-reporter=spec out/test/unit/**/*.test.js",
     "test:coverage": "rimraf .nyc_output coverage && c8 --reporter=text --reporter=lcov node --test out/test/unit/**/*.test.js && node scripts/coverage-badge.mjs",
     "test:coverage:full": "rimraf .node_coverage coverage out-instrumented && npm run vscode:prepublish && cp out/extension.js out/extension.js.bak && npx nyc instrument out out-instrumented && cp out-instrumented/extension.js out/extension.js && CPUM_COVERAGE_DIR=.node_coverage c8 --reporter=text --reporter=lcov node --test out/test/unit/**/*.test.js && CPUM_COVERAGE_DIR=.node_coverage node ./out/test/runTests.js; RC=$?; mv out/extension.js.bak out/extension.js; rimraf out-instrumented; if [ $RC -ne 0 ]; then exit $RC; fi; c8 report --reporter=text --reporter=lcov --coverage-dir .node_coverage && node scripts/merge-extension-coverage.mjs .node_coverage && node scripts/coverage-badge.mjs",
+  "clean": "bash scripts/clean-artifacts.sh",
+  "clean:full": "bash scripts/clean-artifacts.sh && git clean -fdX || true",
     "vsce": "npx @vscode/vsce",
     "package": "npx @vscode/vsce package",
     "release": "npm run vscode:prepublish && npx @vscode/vsce publish"
