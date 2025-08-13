@@ -1,468 +1,158 @@
 import * as vscode from 'vscode';
 import { computeUsageBar, pickIcon, formatRelativeTime } from './lib/format';
-// Octokit will be loaded lazily to reduce activation overhead
 import * as nls from 'vscode-nls';
 
 const localize = nls.loadMessageBundle();
 
-// Lazy Octokit cache
+// ---------- Globals ----------
+let extCtx: vscode.ExtensionContext | undefined;
+let statusItem: vscode.StatusBarItem | undefined;
+let statusBarMissingWarned = false; // one-time gate for missing status bar warning
+let _logChannel: vscode.OutputChannel | undefined;
+let logAutoOpened = false; // track automatic log opening per session
+let lastIconOverrideWarningMessage: string | undefined; // track override changes
+let _test_lastStatusBarText: string | undefined; // test cache
+let _test_postedMessages: any[] = []; // test capture of webview postMessage payloads
+let _test_helpCount = 0; // test: number of help invocations
+let _test_lastHelpInvoked: number | undefined; // test: timestamp of last help invocation
+
+// Getter helpers (declared early so they are in scope for activation return object)
+function _test_getHelpCount() { return _test_helpCount; }
+function _test_getLastHelpInvoked() { return _test_lastHelpInvoked; }
+
+// Lazy Octokit cache & test override
 type OctokitModule = typeof import('@octokit/rest');
 let _octokitModule: OctokitModule | undefined;
+let _testOctokitFactory: ((auth?: string) => any) | undefined;
 async function getOctokit(auth?: string) {
-	if (!_octokitModule) {
-		_octokitModule = await import('@octokit/rest');
-	}
+	if (_testOctokitFactory) { try { return _testOctokitFactory(auth); } catch { /* noop */ } }
+	if (!_octokitModule) { _octokitModule = await import('@octokit/rest'); }
 	const { Octokit } = _octokitModule;
 	return new Octokit({ auth, request: { headers: { 'X-GitHub-Api-Version': '2022-11-28' } } });
 }
 
-export function activate(context: vscode.ExtensionContext) {
-	// Make context available for status bar updates
-	extCtx = context;
-	// Always initialize and show status bar meter
-	initStatusBar(context);
-	updateStatusBar();
-	statusItem?.show();
-	const openPanel = vscode.commands.registerCommand('copilotPremiumUsageMonitor.openPanel', () => {
-		UsagePanel.createOrShow(context);
-	});
-
-	const signIn = vscode.commands.registerCommand('copilotPremiumUsageMonitor.signIn', async () => {
-		await UsagePanel.ensureGitHubSession();
-		vscode.window.showInformationMessage('GitHub sign-in completed (if required).');
-	});
-
-	const configureOrg = vscode.commands.registerCommand('copilotPremiumUsageMonitor.configureOrg', async () => {
-		const token = await getGitHubToken();
-		if (!token) {
-			vscode.window.showInformationMessage('Sign in to GitHub or set a token in settings first.');
-			return;
-		}
-		try {
-			const octokit = await getOctokit(token);
-			const orgs = await octokit.paginate('GET /user/orgs', { per_page: 100 });
-			if (!orgs.length) {
-				vscode.window.showInformationMessage('No organizations found for your account.');
-				return;
-			}
-			const pick = await vscode.window.showQuickPick(orgs.map((o: any) => ({ label: o.login as string, description: o.description || '' })), { placeHolder: 'Select an organization' });
-			if (pick && typeof pick.label === 'string') {
-				await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', pick.label, vscode.ConfigurationTarget.Global);
-				vscode.window.showInformationMessage(`Organization set to ${pick.label}`);
-			}
-		} catch (e: any) {
-			vscode.window.showErrorMessage(`Failed to list organizations: ${e?.message ?? e}`);
-			maybeAutoOpenLog();
-		}
-	});
-
-	context.subscriptions.push(openPanel, signIn, configureOrg);
-
-	const manage = vscode.commands.registerCommand('copilotPremiumUsageMonitor.manage', async () => {
-		try {
-			await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:fail-safe.copilot-premium-usage-monitor copilotPremiumUsageMonitor');
-		} catch {
-			await vscode.commands.executeCommand('workbench.action.openSettings', 'copilotPremiumUsageMonitor');
-		}
-	});
-	context.subscriptions.push(manage);
-
-	const showLogs = vscode.commands.registerCommand('copilotPremiumUsageMonitor.showLogs', () => {
-		const log = getLog();
-		log.show(true);
-		log.appendLine('[User] Opened log channel');
-	});
-	context.subscriptions.push(showLogs);
-
-	const enableFirstRun = vscode.commands.registerCommand('copilotPremiumUsageMonitor.enableFirstRunNotice', async () => {
-		await context.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', false);
-		await context.globalState.update('copilotPremiumUsageMonitor.firstRunShown', false);
-		await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', false, vscode.ConfigurationTarget.Global);
-		vscode.window.showInformationMessage(localize('cpum.enableFirstRun.restored', 'Help banner will show again next time you open the panel.'));
-	});
-
-	context.subscriptions.push(enableFirstRun);
-
-	// Init status bar meter
-	initStatusBar(context);
-	updateStatusBar();
-
-	// Sidebar removed in v0.2.0
-
-	// React to budget changes
-	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
-		if (
-			e.affectsConfiguration('copilotPremiumUsageMonitor.budget') ||
-			e.affectsConfiguration('copilotPremiumUsageMonitor.mode') ||
-			e.affectsConfiguration('copilotPremiumUsageMonitor.org') ||
-			e.affectsConfiguration('copilotPremiumUsageMonitor.warnAtPercent') ||
-			e.affectsConfiguration('copilotPremiumUsageMonitor.dangerAtPercent') ||
-			e.affectsConfiguration('copilotPremiumUsageMonitor.statusBarIconOverride')
-		) {
-			updateStatusBar();
-		}
-		if (e.affectsConfiguration('copilotPremiumUsageMonitor.refreshIntervalMinutes')) {
-			restartAutoRefresh();
-		}
-		if (e.affectsConfiguration('copilotPremiumUsageMonitor.statusBarAlignment')) {
-			initStatusBar(context); // recreate with new alignment
-			updateStatusBar();
-		}
-	}));
-
-	// Start auto-refresh
-	startAutoRefresh();
-	startRelativeTimeTicker();
-	return {
-		_test_getStatusBarText,
-		_test_forceStatusBarUpdate,
-		_test_setSpendAndUpdate
-	};
-}
-// applySidebarContext removed with sidebar feature.
-
-export function deactivate() {
-	stopRelativeTimeTicker();
-}
-
+// ---------- Panel ----------
 class UsagePanel {
 	public static currentPanel: UsagePanel | undefined;
 	private readonly panel: vscode.WebviewPanel;
 	private readonly extensionUri: vscode.Uri;
 	private readonly globalState: vscode.Memento;
 	private disposables: vscode.Disposable[] = [];
-	private static _session: vscode.AuthenticationSession | undefined;
-	public static postMessage(data: any) {
-		try {
-			if (UsagePanel.currentPanel) {
-				(UsagePanel.currentPanel as any).panel?.webview?.postMessage(data);
-			}
-		} catch { /* noop */ }
-	}
+	private _dispatch?: (msg: any) => void; // test hook
 
 	static async ensureGitHubSession(): Promise<vscode.AuthenticationSession | undefined> {
-		// Use token from settings first if provided
-		const cfgNew = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-		const token = (cfgNew.get('token') as string | undefined)?.trim();
-		if (token) {
-			return undefined; // direct token usage, no session required
-		}
-		// Otherwise, request a GitHub auth session
-		try {
-			// Request only scopes needed for org metrics
-			this._session = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: true });
-			return this._session;
-		} catch (err) {
-			vscode.window.showErrorMessage('GitHub sign-in failed or was cancelled.');
-			maybeAutoOpenLog();
-			return undefined;
-		}
+		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		const token = (cfg.get('token') as string | undefined)?.trim();
+		if (token) return undefined; // PAT present
+		try { return await vscode.authentication.getSession('github', ['read:org'], { createIfNone: true }); } catch { vscode.window.showErrorMessage('GitHub sign-in failed or was cancelled.'); maybeAutoOpenLog(); return undefined; }
 	}
 
 	static createOrShow(context: vscode.ExtensionContext) {
 		const column = vscode.window.activeTextEditor?.viewColumn;
-		if (UsagePanel.currentPanel) {
-			UsagePanel.currentPanel.panel.reveal(column);
-			UsagePanel.currentPanel.update();
-			return;
-		}
-
-		const panel = vscode.window.createWebviewPanel(
-			'copilotPremiumUsageMonitor',
-			'Copilot Premium Usage Monitor',
-			column ?? vscode.ViewColumn.One,
-			{
-				enableScripts: true,
-				retainContextWhenHidden: true,
-			}
-		);
-
+		if (UsagePanel.currentPanel) { UsagePanel.currentPanel.panel.reveal(column); UsagePanel.currentPanel.update(); return; }
+		const panel = vscode.window.createWebviewPanel('copilotPremiumUsageMonitor', 'Copilot Premium Usage Monitor', column ?? vscode.ViewColumn.One, { enableScripts: true, retainContextWhenHidden: true });
 		UsagePanel.currentPanel = new UsagePanel(panel, context.extensionUri, context);
 	}
 
 	private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
-		this.panel = panel;
-		this.extensionUri = extensionUri;
-		this.globalState = context.globalState;
-
+		this.panel = panel; this.extensionUri = extensionUri; this.globalState = context.globalState;
 		this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
-
-		this.panel.webview.onDidReceiveMessage(async (message) => {
+		this._dispatch = async (message: any) => {
 			switch (message.type) {
 				case 'getConfig': {
 					const cfgNew = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
 					const cfgOld = vscode.workspace.getConfiguration('copilotPremiumMonitor');
-					let hasSession = false;
-					try {
-						const s = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: false });
-						hasSession = !!s;
-					} catch { /* noop */ }
+					let hasSession = false; try { const s = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: false }); hasSession = !!s; } catch { /* noop */ }
 					const hasPat = !!((cfgNew.get('token') as string | undefined)?.trim());
-					this.post({
-						type: 'config',
-						config: {
-							budget: (cfgNew.get('budget') as number | undefined) ?? (cfgOld.get('budget') as number | undefined),
-							org: (cfgNew.get('org') as string | undefined) ?? (cfgOld.get('org') as string | undefined),
-							mode: (cfgNew.get('mode') as string | undefined) ?? 'auto',
-							warnAtPercent: Number(cfgNew.get('warnAtPercent') ?? 80),
-							dangerAtPercent: Number(cfgNew.get('dangerAtPercent') ?? 100),
-							hasPat,
-							hasSession,
-						},
-					});
+					this.post({ type: 'config', config: { budget: (cfgNew.get('budget') as number | undefined) ?? (cfgOld.get('budget') as number | undefined), org: (cfgNew.get('org') as string | undefined) ?? (cfgOld.get('org') as string | undefined), mode: (cfgNew.get('mode') as string | undefined) ?? 'auto', warnAtPercent: Number(cfgNew.get('warnAtPercent') ?? 80), dangerAtPercent: Number(cfgNew.get('dangerAtPercent') ?? 100), hasPat, hasSession } });
 					break;
 				}
-				case 'openSettings': {
-					await vscode.commands.executeCommand('workbench.action.openSettings', 'copilotPremiumUsageMonitor');
-					break;
-				}
-				case 'help': {
-					const readme = vscode.Uri.joinPath(this.extensionUri, 'README.md');
-					try {
-						await vscode.commands.executeCommand('markdown.showPreview', readme);
-					} catch {
-						try { await vscode.window.showTextDocument(readme); } catch { /* noop */ }
-					}
-					break;
-				}
-				case 'dismissFirstRun': {
-					await this.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', true);
-					try { await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', true, vscode.ConfigurationTarget.Global); } catch { /* noop */ }
-					break;
-				}
+				case 'openSettings': { await vscode.commands.executeCommand('workbench.action.openSettings', 'copilotPremiumUsageMonitor'); break; }
+				case 'help': { _test_helpCount++; _test_lastHelpInvoked = Date.now(); const readme = vscode.Uri.joinPath(this.extensionUri, 'README.md'); try { await vscode.commands.executeCommand('markdown.showPreview', readme); } catch { try { await vscode.window.showTextDocument(readme); } catch { /* noop */ } } break; }
+				case 'dismissFirstRun': { await this.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', true); try { await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', true, vscode.ConfigurationTarget.Global); } catch { /* noop */ } break; }
 				case 'refresh': {
 					const token = await getGitHubToken();
-					if (!token) {
-						const errorMsg = 'Authentication error: Please sign in or provide a valid PAT.';
-						this.post({
-							type: 'error',
-							message: errorMsg
-						});
-						await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', errorMsg);
-						vscode.window.showErrorMessage(errorMsg);
-						maybeAutoOpenLog();
-						updateStatusBar(); // reflect stale state immediately
-						break;
-					}
-					const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-					const org = (cfg.get('org') as string | undefined)?.trim();
-					const incomingMode = (message.mode as string | undefined) ?? (cfg.get('mode') as string | undefined) ?? 'auto';
+					if (!token) { const m = 'Authentication error: Please sign in or provide a valid PAT.'; this.post({ type: 'error', message: m }); await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', m); vscode.window.showErrorMessage(m); maybeAutoOpenLog(); updateStatusBar(); break; }
+					const cfgR = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const org = (cfgR.get('org') as string | undefined)?.trim();
+					const incomingMode = (message.mode as string | undefined) ?? (cfgR.get('mode') as string | undefined) ?? 'auto';
 					const mode = incomingMode === 'personal' || incomingMode === 'org' ? incomingMode : 'auto';
 					const effectiveMode = mode === 'auto' ? (org ? 'org' : 'personal') : mode;
 					if (effectiveMode === 'personal') {
-						try {
-							const octokit = await getOctokit(token);
-							const me = await octokit.request('GET /user');
-							const login = me.data?.login as string | undefined;
-							if (!login) throw new Error('Cannot determine authenticated username.');
-							const now = new Date();
-							const year = now.getUTCFullYear();
-							const month = now.getUTCMonth() + 1;
-							const billing = await fetchUserBillingUsage(login, token, { year, month });
-							// Clear stored last error BEFORE updating spend so status bar removes stale tag
-							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { /* noop */ }
-							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { /* noop */ }
-							await this.setSpend(billing.totalNetAmount); // triggers status bar update
-							this.post({ type: 'billing', billing });
-							// Clear previous error state if any (webview)
-							this.post({ type: 'clearError' });
-							// Update panel HTML/content after state changes
-							this.update();
-						} catch (e: any) {
-							let message = 'Failed to sync usage.';
-							if (e?.status === 404) {
-								// 404 here generally means the enhanced billing usage endpoint is not available for this user context.
-								message = 'Personal billing usage endpoint returned 404. Common causes: (1) Enhanced Billing / detailed usage not enabled for your account yet, (2) the PAT lacks required Plan read access (generate a classic token with `read:org` is NOT enough; ensure Plan: read-only entitlement), (3) you have no Copilot Premium usage recorded this period, or (4) the feature is still propagating (just enabled – retry later). You can try Org mode if you only have organization usage. Open budgets: https://github.com/settings/billing/budgets';
-							} else if (e?.status === 403) {
-								message = 'Authentication error: Permission denied. Ensure your token or session has Enhanced Billing Plan read access.';
-							} else if (e?.message?.includes('401') || e?.message?.includes('403')) {
-								message = 'Authentication error: Please sign in or provide a valid PAT.';
-							} else if (e?.message?.includes('network')) {
-								message = 'Network error: Unable to reach GitHub.';
-							} else if (e?.message) {
-								message = `Failed to sync usage: ${e.message}`;
-							}
-							this.post({ type: 'error', message });
-							await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', message);
-							vscode.window.showErrorMessage(message);
-							maybeAutoOpenLog();
-							updateStatusBar(); // show stale icon/tag
-							// Do NOT call update here; let the error banner remain visible
-						}
-						break;
+						try { const octokit = await getOctokit(token); const me = await octokit.request('GET /user'); const login = me.data?.login as string | undefined; if (!login) throw new Error('Cannot determine authenticated username.'); const now = new Date(); const year = now.getUTCFullYear(); const month = now.getUTCMonth() + 1; const billing = await fetchUserBillingUsage(login, token, { year, month }); try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { } try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { } await this.setSpend(billing.totalNetAmount); this.post({ type: 'billing', billing }); this.post({ type: 'clearError' }); this.update(); } catch (e: any) { let msg = 'Failed to sync usage.'; if (e?.status === 404) msg = 'Personal billing usage endpoint returned 404.'; else if (e?.status === 403) msg = 'Authentication error: Permission denied.'; else if (e?.message?.includes('401') || e?.message?.includes('403')) msg = 'Authentication error: Please sign in or provide a valid PAT.'; else if (e?.message?.toLowerCase()?.includes('network')) msg = 'Network error: Unable to reach GitHub.'; else if (e?.message) msg = `Failed to sync usage: ${e.message}`; this.post({ type: 'error', message: msg }); await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); vscode.window.showErrorMessage(msg); maybeAutoOpenLog(); updateStatusBar(); } break;
 					}
-					try {
-						const metrics = await fetchOrgCopilotMetrics(org!, token, {});
-						// Clear error first so status bar update (below) reflects non-stale state
-						try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { /* noop */ }
-						try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { /* noop */ }
-						this.post({ type: 'metrics', metrics });
-						this.post({ type: 'clearError' });
-						updateStatusBar(); // spend may not change, but remove stale tag/icon
-					} catch (e: any) {
-						let message = 'Failed to sync org metrics.';
-						// Provide clearer, user-actionable guidance for common status codes
-						if (e?.status === 404) {
-							// 404 typically means metrics are not available for this org / user context.
-							message = 'Org metrics endpoint returned 404. This usually means Copilot metrics are not available for this organization. Common causes: (1) Copilot not enabled or no active seats, (2) your account is not an org owner / billing manager, (3) metrics are still propagating (newly enabled – try again later), or (4) the organization name is incorrect. You can switch the Mode to Personal if you only need personal spend. Docs: https://docs.github.com/rest/copilot/copilot-metrics#get-copilot-metrics-for-an-organization';
-						} else if (e?.message?.includes('401') || e?.message?.includes('403')) {
-							message = 'Authentication error: Please sign in or provide a valid PAT.';
-						} else if (e?.message?.toLowerCase()?.includes('network')) {
-							message = 'Network error: Unable to reach GitHub.';
-						} else if (e?.message) {
-							message = `Failed to sync org metrics: ${e.message}`;
-						}
-						this.post({ type: 'error', message });
-						await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', message);
-						vscode.window.showErrorMessage(message);
-						maybeAutoOpenLog();
-						updateStatusBar();
-					}
-					// Do NOT call update here; let the error banner remain visible
+					try { const metrics = await fetchOrgCopilotMetrics(org!, token, {}); try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { } try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { } this.post({ type: 'metrics', metrics }); this.post({ type: 'clearError' }); updateStatusBar(); } catch (e: any) { let msg = 'Failed to sync org metrics.'; if (e?.status === 404) msg = 'Org metrics endpoint returned 404.'; else if (e?.message?.includes('401') || e?.message?.includes('403')) msg = 'Authentication error: Please sign in or provide a valid PAT.'; else if (e?.message?.toLowerCase()?.includes('network')) msg = 'Network error: Unable to reach GitHub.'; else if (e?.message) msg = `Failed to sync org metrics: ${e.message}`; this.post({ type: 'error', message: msg }); await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); vscode.window.showErrorMessage(msg); maybeAutoOpenLog(); updateStatusBar(); }
 					break;
 				}
-				case 'signIn': {
-					await UsagePanel.ensureGitHubSession();
-					break;
-				}
-				case 'openExternal': {
-					if (typeof message.url === 'string' && message.url.startsWith('http')) {
-						try { await vscode.env.openExternal(vscode.Uri.parse(message.url)); } catch { /* noop */ }
-					}
-					break;
-				}
+				case 'signIn': { await UsagePanel.ensureGitHubSession(); break; }
+				case 'openExternal': { if (typeof message.url === 'string' && message.url.startsWith('http')) { try { await vscode.env.openExternal(vscode.Uri.parse(message.url)); } catch { /* noop */ } } break; }
 			}
-		});
-
+		};
+		this.panel.webview.onDidReceiveMessage(this._dispatch);
 		this.update();
 		this.maybeShowFirstRunNotice();
 	}
-
-	public dispose() {
-		UsagePanel.currentPanel = undefined;
-		this.panel.dispose();
-		while (this.disposables.length) {
-			const d = this.disposables.pop();
-			try { d?.dispose(); } catch { /* noop */ }
-		}
-	}
-
-	private post(data: any) {
-		// When sending config, also replay last error and any persisted icon override warning
-		if (data.type === 'config') {
-			const lastError = this.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
-			if (lastError) {
-				this.panel.webview.postMessage({ type: 'error', message: lastError });
-			}
-			const iconWarn = this.globalState.get<string>('copilotPremiumUsageMonitor.iconOverrideWarning');
-			if (iconWarn) {
-				this.panel.webview.postMessage({ type: 'iconOverrideWarning', message: iconWarn });
-			}
-		}
-		this.panel.webview.postMessage(data);
-	}
-
-	private get webviewHtml(): string {
-		const webview = this.panel.webview;
-		const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.js'));
-		const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.css'));
-		const nonce = getNonce();
-		return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<link href="${styleUri}" rel="stylesheet" />
-<title>Copilot Premium Usage Monitor</title>
-</head>
-<body>
-	<div id="error-banner-container"></div>
-	<div id="app">
-		<h2>${localize('cpum.title', 'Copilot Premium Usage Monitor')}</h2>
-		<div id="summary"></div>
-			<div class="controls controls-row">
-				<div class="btn-group">
-					<button class="btn" id="refresh">${localize('cpum.refresh', 'Refresh')}</button>
-					<button class="btn" id="signIn">${localize('cpum.signIn', 'Sign in to GitHub')}</button>
-					<button class="btn" id="openSettings">${localize('cpum.settings', 'Settings')}</button>
-					<button class="btn" id="help" title="${localize('cpum.help.tooltip', 'Open documentation and setup guidance')}">${localize('cpum.help', 'Help')}</button>
-				</div>
-				<div class="right-group">
-					<label id="modeRow">${localize('cpum.mode', 'Mode')}:
-						<select id="mode">
-							<option value="auto" selected>${localize('cpum.mode.auto', 'Auto')}</option>
-							<option value="personal">${localize('cpum.mode.personal', 'Personal')}</option>
-							<option value="org">${localize('cpum.mode.org', 'Organization')}</option>
-						</select>
-					</label>
-				</div>
-			</div>
-	</div>
-	<script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
-	}
-
-	private async maybeShowFirstRunNotice() {
-		const key = 'copilotPremiumUsageMonitor.firstRunShown';
-		const shown = this.globalState.get<boolean>(key);
-		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-		const permanentlyDisabled = cfg.get<boolean>('disableFirstRunTips') === true || this.globalState.get<boolean>('copilotPremiumUsageMonitor.firstRunDisabled') === true;
-		if (shown || permanentlyDisabled) return;
-		this.post({
-			type: 'notice',
-			severity: 'info',
-			text: localize('cpum.firstRun.tip', "Tip: Org metrics use your GitHub sign-in (read:org). Personal spend needs a PAT with 'Plan: read-only'. Avoid syncing your PAT. Click Help to learn more."),
-			helpAction: true,
-			dismissText: localize('cpum.firstRun.dismiss', "Don't show again"),
-			learnMoreText: localize('cpum.firstRun.learnMore', 'Learn more'),
-			openBudgetsText: localize('cpum.firstRun.openBudgets', 'Open budgets'),
-			budgetsUrl: 'https://github.com/settings/billing/budgets'
-		});
-		await this.globalState.update(key, true);
-	}
-
-
-	private async setSpend(value: number) {
-		await this.globalState.update('copilotPremiumUsageMonitor.currentSpend', value);
-		updateStatusBar();
-	}
-
-	private getSpend(): number {
-		const stored = this.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend');
-		if (typeof stored === 'number') return stored;
-		// Back-compat: read legacy setting if present
-		const cfg = vscode.workspace.getConfiguration();
-		const legacy = cfg.get<number>('copilotPremiumMonitor.currentSpend', 0);
-		return legacy ?? 0;
-	}
-
-	private update() {
-		this.panel.webview.html = this.webviewHtml;
-		const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-		const budget = Number(config.get('budget') ?? 0);
-		const spend = this.getSpend();
-		const pct = budget > 0 ? Math.min(100, Math.round((spend / budget) * 100)) : 0;
-		const warnAtPercent = Number(config.get('warnAtPercent') ?? 80);
-		const dangerAtPercent = Number(config.get('dangerAtPercent') ?? 100);
-		setTimeout(() => this.post({ type: 'summary', budget, spend, pct, warnAtPercent, dangerAtPercent }), 50);
-	}
+	dispose() { UsagePanel.currentPanel = undefined; try { this.panel.dispose(); } catch { /* noop */ } while (this.disposables.length) { try { this.disposables.pop()?.dispose(); } catch { /* noop */ } } }
+	private post(data: any) { if (data && typeof data === 'object') { try { _test_postedMessages.push(data); } catch { /* noop */ } } if (data.type === 'config') { const lastError = this.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError'); if (lastError) { const errMsg = { type: 'error', message: lastError }; this.panel.webview.postMessage(errMsg); try { _test_postedMessages.push(errMsg); } catch { /* noop */ } } const iconWarn = this.globalState.get<string>('copilotPremiumUsageMonitor.iconOverrideWarning'); if (iconWarn) { const warnMsg = { type: 'iconOverrideWarning', message: iconWarn }; this.panel.webview.postMessage(warnMsg); try { _test_postedMessages.push(warnMsg); } catch { /* noop */ } } } this.panel.webview.postMessage(data); }
+	private get webviewHtml(): string { const webview = this.panel.webview; const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.js')); const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.css')); const nonce = getNonce(); return `<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\" />\n<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src ${webview.cspSource} https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n<link href=\"${styleUri}\" rel=\"stylesheet\" />\n<title>Copilot Premium Usage Monitor</title>\n</head>\n<body>\n<div id=\"error-banner-container\"></div>\n<div id=\"app\">\n<h2>${localize('cpum.title', 'Copilot Premium Usage Monitor')}</h2>\n<div id=\"summary\"></div>\n<div class=\"controls controls-row\">\n<div class=\"btn-group\">\n<button class=\"btn\" id=\"refresh\">${localize('cpum.refresh', 'Refresh')}</button>\n<button class=\"btn\" id=\"signIn\">${localize('cpum.signIn', 'Sign in to GitHub')}</button>\n<button class=\"btn\" id=\"openSettings\">${localize('cpum.settings', 'Settings')}</button>\n<button class=\"btn\" id=\"help\" title=\"${localize('cpum.help.tooltip', 'Open documentation and setup guidance')}\">${localize('cpum.help', 'Help')}</button>\n</div>\n<div class=\"right-group\">\n<label id=\"modeRow\">${localize('cpum.mode', 'Mode')}:\n<select id=\"mode\">\n<option value=\"auto\" selected>${localize('cpum.mode.auto', 'Auto')}</option>\n<option value=\"personal\">${localize('cpum.mode.personal', 'Personal')}</option>\n<option value=\"org\">${localize('cpum.mode.org', 'Organization')}</option>\n</select>\n</label>\n</div>\n</div>\n</div>\n<script nonce=\"${nonce}\" src=\"${scriptUri}\"></script>\n</body>\n</html>`; }
+	private async maybeShowFirstRunNotice() { const key = 'copilotPremiumUsageMonitor.firstRunShown'; const shown = this.globalState.get<boolean>(key); const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const disabled = cfg.get<boolean>('disableFirstRunTips') === true || this.globalState.get<boolean>('copilotPremiumUsageMonitor.firstRunDisabled') === true; if (shown || disabled) return; this.post({ type: 'notice', severity: 'info', text: localize('cpum.firstRun.tip', "Tip: Org metrics use your GitHub sign-in (read:org). Personal spend needs a PAT with 'Plan: read-only'. Avoid syncing your PAT. Click Help to learn more."), helpAction: true, dismissText: localize('cpum.firstRun.dismiss', "Don't show again"), learnMoreText: localize('cpum.firstRun.learnMore', 'Learn more'), openBudgetsText: localize('cpum.firstRun.openBudgets', 'Open budgets'), budgetsUrl: 'https://github.com/settings/billing/budgets' }); await this.globalState.update(key, true); }
+	private async setSpend(v: number) { await this.globalState.update('copilotPremiumUsageMonitor.currentSpend', v); updateStatusBar(); }
+	private getSpend(): number { const stored = this.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend'); if (typeof stored === 'number') return stored; const cfg = vscode.workspace.getConfiguration(); const legacy = cfg.get<number>('copilotPremiumMonitor.currentSpend', 0); return legacy ?? 0; }
+	private update() { this.panel.webview.html = this.webviewHtml; const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const budget = Number(config.get('budget') ?? 0); const spend = this.getSpend(); const pct = budget > 0 ? Math.min(100, Math.round((spend / budget) * 100)) : 0; const warnAtPercent = Number(config.get('warnAtPercent') ?? 80); const dangerAtPercent = Number(config.get('dangerAtPercent') ?? 100); setTimeout(() => this.post({ type: 'summary', budget, spend, pct, warnAtPercent, dangerAtPercent }), 50); }
 }
 
-// ---------------- Status bar meter ----------------
-let extCtx: vscode.ExtensionContext;
-let statusItem: vscode.StatusBarItem | undefined;
-let statusBarMissingWarned = false; // one-time gate for missing status bar warning
-let _logChannel: vscode.OutputChannel | undefined;
-let logAutoOpened = false; // track automatic log opening per session
-// Track last icon override warning message so we can refresh banner text when the override changes.
-let lastIconOverrideWarningMessage: string | undefined;
-// Test hook: keep last status bar text in a simple variable for retrieval in tests
-let _test_lastStatusBarText: string | undefined;
+// Test hook to drive message handler without an actual webview post
+(UsagePanel as any)._test_invokeMessage = (msg: any) => { try { const p = UsagePanel.currentPanel as any; p?._dispatch && p._dispatch(msg); } catch { /* noop */ } };
+
+function maybeDumpExtensionHostCoverage() { try { const dir = process.env.CPUM_COVERAGE_DIR; const cov: any = (globalThis as any).__coverage__; if (dir && cov) { const fs = require('fs'); const path = require('path'); const file = path.join(dir, 'extension-host-final.json'); fs.writeFileSync(file, JSON.stringify(cov), 'utf8'); } } catch { /* noop */ } }
+
+export function activate(context: vscode.ExtensionContext) {
+	extCtx = context;
+	const openPanel = vscode.commands.registerCommand('copilotPremiumUsageMonitor.openPanel', () => UsagePanel.createOrShow(context));
+	const signIn = vscode.commands.registerCommand('copilotPremiumUsageMonitor.signIn', async () => { await UsagePanel.ensureGitHubSession(); vscode.window.showInformationMessage('GitHub sign-in completed (if required).'); });
+	const configureOrg = vscode.commands.registerCommand('copilotPremiumUsageMonitor.configureOrg', async () => {
+		try {
+			if (process.env.CPUM_TEST_FORCE_ORG_ERROR) throw new Error('Forced test org list error');
+			const token = await getGitHubToken();
+			if (!token) { vscode.window.showInformationMessage('Sign in to GitHub or set a token in settings first.'); return; }
+			const octokit = await getOctokit(token);
+			const orgs: any[] = await octokit.paginate('GET /user/orgs', { per_page: 100 });
+			if (!orgs.length) { vscode.window.showInformationMessage('No organizations found for your account.'); return; }
+			const items: vscode.QuickPickItem[] = orgs.map(o => ({ label: String(o.login || ''), description: o.description || '' }));
+			const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Select an organization' });
+			if (pick && pick.label) {
+				await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', pick.label, vscode.ConfigurationTarget.Global);
+				vscode.window.showInformationMessage(`Organization set to ${pick.label}`);
+			}
+		} catch (e: any) {
+			try { getLog().appendLine(`[configureOrg] Error: ${e?.message ?? e}`); } catch { /* noop */ }
+			vscode.window.showErrorMessage(`Failed to list organizations: ${e?.message ?? e}`);
+			maybeAutoOpenLog();
+		}
+	});
+	const manage = vscode.commands.registerCommand('copilotPremiumUsageMonitor.manage', async () => { try { await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:fail-safe.copilot-premium-usage-monitor copilotPremiumUsageMonitor'); } catch { await vscode.commands.executeCommand('workbench.action.openSettings', 'copilotPremiumUsageMonitor'); } });
+	const showLogs = vscode.commands.registerCommand('copilotPremiumUsageMonitor.showLogs', () => { const log = getLog(); log.show(true); log.appendLine('[User] Opened log channel'); });
+	const enableFirstRun = vscode.commands.registerCommand('copilotPremiumUsageMonitor.enableFirstRunNotice', async () => { await context.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', false); await context.globalState.update('copilotPremiumUsageMonitor.firstRunShown', false); await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', false, vscode.ConfigurationTarget.Global); vscode.window.showInformationMessage(localize('cpum.enableFirstRun.restored', 'Help banner will show again next time you open the panel.')); });
+	context.subscriptions.push(openPanel, signIn, configureOrg, manage, showLogs, enableFirstRun);
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+		if (e.affectsConfiguration('copilotPremiumUsageMonitor.budget') || e.affectsConfiguration('copilotPremiumUsageMonitor.mode') || e.affectsConfiguration('copilotPremiumUsageMonitor.org') || e.affectsConfiguration('copilotPremiumUsageMonitor.warnAtPercent') || e.affectsConfiguration('copilotPremiumUsageMonitor.dangerAtPercent') || e.affectsConfiguration('copilotPremiumUsageMonitor.statusBarIconOverride')) updateStatusBar();
+		if (e.affectsConfiguration('copilotPremiumUsageMonitor.refreshIntervalMinutes')) restartAutoRefresh();
+		if (e.affectsConfiguration('copilotPremiumUsageMonitor.statusBarAlignment')) { initStatusBar(context); updateStatusBar(); }
+	}));
+	initStatusBar(context); updateStatusBar();
+	startAutoRefresh(); startRelativeTimeTicker();
+	if (process.env.CPUM_TEST_ENABLE_LOG_BUFFER) { try { getLog(); } catch { /* noop */ } }
+	maybeDumpExtensionHostCoverage();
+	return { _test_getStatusBarText, _test_forceStatusBarUpdate, _test_setSpendAndUpdate, _test_getStatusBarColor, _test_setLastSyncTimestamp, _test_getRefreshIntervalId, _test_getLogBuffer, _test_clearLastError, _test_setLastError, _test_getRefreshRestartCount, _test_getLogAutoOpened, _test_getSpend, _test_getLastError, _test_getPostedMessages, _test_resetPostedMessages, _test_resetFirstRun, _test_closePanel, _test_setIconOverrideWarning, _test_getHelpCount, _test_getLastHelpInvoked, _test_forceCoverageDump: () => { try { maybeDumpExtensionHostCoverage(); } catch { /* noop */ } }, _test_setOctokitFactory: (fn: any) => { _testOctokitFactory = fn; }, _test_invokeWebviewMessage: (msg: any) => { try { (UsagePanel as any)._test_invokeMessage(msg); } catch { /* noop */ } }, _test_refreshPersonal, _test_refreshOrg };
+}
 function getLog(): vscode.OutputChannel {
 	if (!_logChannel) {
 		_logChannel = vscode.window.createOutputChannel('Copilot Premium Usage');
+		if (process.env.CPUM_TEST_ENABLE_LOG_BUFFER) {
+			// Wrap appendLine to capture messages for tests
+			const orig = _logChannel.appendLine.bind(_logChannel);
+			(_logChannel as any)._buffer = [] as string[];
+			(_logChannel as any).appendLine = (msg: string) => { try { (_logChannel as any)._buffer.push(msg); } catch { /* noop */ } orig(msg); };
+		}
 	}
 	return _logChannel;
 }
@@ -479,6 +169,7 @@ function maybeAutoOpenLog() {
 }
 // Sidebar feature removed in v0.2.0 (sidebarProvider eliminated)
 let autoRefreshTimer: NodeJS.Timeout | undefined;
+let autoRefreshRestartCount = 0; // test helper counter
 let relativeTimeTimer: NodeJS.Timeout | undefined;
 
 function initStatusBar(context: vscode.ExtensionContext) {
@@ -612,19 +303,19 @@ function getBudgetSpendAndMode() {
 
 // ---------------- Auto refresh ----------------
 function startAutoRefresh() {
+	const wasRunning = !!autoRefreshTimer;
 	stopAutoRefresh();
 	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
 	let minutes = Number(cfg.get('refreshIntervalMinutes') ?? 15);
 	if (!isFinite(minutes) || minutes <= 0) minutes = 15;
 	const ms = Math.max(5, Math.floor(minutes)) * 60 * 1000; // minimum 5 minutes
 	autoRefreshTimer = setInterval(() => performAutoRefresh().catch(() => { /* noop */ }), ms);
+	if (wasRunning) autoRefreshRestartCount++; // count restarts only (not initial start)
 	// Also perform one immediate refresh attempt non-interactively
 	performAutoRefresh().catch(() => { /* noop */ });
 }
 
-function restartAutoRefresh() {
-	startAutoRefresh();
-}
+function restartAutoRefresh() { startAutoRefresh(); }
 
 function stopAutoRefresh() {
 	if (autoRefreshTimer) {
@@ -669,9 +360,9 @@ async function performAutoRefresh() {
 			const year = now.getUTCFullYear();
 			const month = now.getUTCMonth() + 1;
 			const billing = await fetchUserBillingUsage(login, token, { year, month });
-			try { await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { /* noop */ }
-			try { await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { /* noop */ }
-			await extCtx.globalState.update('copilotPremiumUsageMonitor.currentSpend', billing.totalNetAmount);
+			try { await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { /* noop */ }
+			try { await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { /* noop */ }
+			await extCtx!.globalState.update('copilotPremiumUsageMonitor.currentSpend', billing.totalNetAmount);
 			updateStatusBar(); // will drop stale tag if present
 		} catch {
 			// ignore in background
@@ -787,6 +478,9 @@ function getNonce() {
 }
 
 export function _test_getStatusBarText(): string | undefined { return _test_lastStatusBarText ?? statusItem?.text; }
+export function _test_getStatusBarColor(): string | undefined {
+	try { const c: any = (statusItem as any)?.color; return c?.id || c?._id || (typeof c === 'string' ? c : undefined); } catch { return undefined; }
+}
 export function _test_forceStatusBarUpdate() {
 	try {
 		if (extCtx && !statusItem) {
@@ -805,3 +499,57 @@ export async function _test_setSpendAndUpdate(spend: number, budget?: number) {
 		updateStatusBar();
 	} catch { /* noop */ }
 }
+export function _test_setLastSyncTimestamp(ts: number) { try { extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', ts); } catch { /* noop */ } }
+export function _test_getRefreshIntervalId(): any { return autoRefreshTimer; }
+export function _test_getLogBuffer(): string[] | undefined { try { getLog(); return (_logChannel as any)?._buffer; } catch { return undefined; } }
+export function _test_clearLastError() { try { extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); updateStatusBar(); } catch { /* noop */ } }
+export function _test_setLastError(msg: string) { try { extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); updateStatusBar(); } catch { /* noop */ } }
+export function _test_getRefreshRestartCount() { return autoRefreshRestartCount; }
+export function _test_getLogAutoOpened() { return logAutoOpened; }
+export function _test_getSpend() { try { return extCtx?.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend'); } catch { return undefined; } }
+export function _test_getLastError() { try { return extCtx?.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError'); } catch { return undefined; } }
+export function _test_getPostedMessages() { return _test_postedMessages.slice(); }
+export function _test_resetPostedMessages() { _test_postedMessages = []; }
+export async function _test_resetFirstRun() { try { await extCtx?.globalState.update('copilotPremiumUsageMonitor.firstRunShown', false); await extCtx?.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', false); } catch { /* noop */ } }
+export function _test_closePanel() { try { (UsagePanel as any).currentPanel?.dispose(); } catch { /* noop */ } }
+export async function _test_setIconOverrideWarning(msg: string | undefined) { try { await extCtx?.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', msg); } catch { /* noop */ } }
+
+// Internal test-only helpers to drive refresh logic directly (bypassing webview message path)
+export async function _test_refreshPersonal() {
+	const token = await getGitHubToken();
+	if (!token || !extCtx) return;
+	try {
+		const octokit = await getOctokit(token);
+		const me = await octokit.request('GET /user');
+		const login = me.data?.login as string | undefined; if (!login) throw new Error('Cannot determine authenticated username.');
+		const now = new Date(); const year = now.getUTCFullYear(); const month = now.getUTCMonth() + 1;
+		const billing = await fetchUserBillingUsage(login, token, { year, month });
+		await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined);
+		await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now());
+		await extCtx.globalState.update('copilotPremiumUsageMonitor.currentSpend', billing.totalNetAmount);
+		updateStatusBar();
+	} catch (e: any) {
+		let msg = 'Failed to sync usage.'; if (e?.status === 404) msg = 'Personal billing usage endpoint returned 404.'; else if (e?.status === 403) msg = 'Authentication error: Permission denied.'; else if (e?.message?.includes('401') || e?.message?.includes('403')) msg = 'Authentication error: Please sign in or provide a valid PAT.'; else if (e?.message?.toLowerCase()?.includes('network')) msg = 'Network error: Unable to reach GitHub.'; else if (e?.message) msg = `Failed to sync usage: ${e.message}`;
+		await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg);
+		updateStatusBar();
+	}
+}
+
+export async function _test_refreshOrg() {
+	const token = await getGitHubToken();
+	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+	const org = (cfg.get('org') as string | undefined)?.trim();
+	if (!token || !org || !extCtx) return;
+	try {
+		const metrics = await fetchOrgCopilotMetrics(org, token, {});
+		await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined);
+		await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now());
+		updateStatusBar();
+		void metrics; // currently unused in status bar tests
+	} catch (e: any) {
+		let msg = 'Failed to sync org metrics.'; if (e?.status === 404) msg = 'Org metrics endpoint returned 404.'; else if (e?.message?.includes('401') || e?.message?.includes('403')) msg = 'Authentication error: Please sign in or provide a valid PAT.'; else if (e?.message?.toLowerCase()?.includes('network')) msg = 'Network error: Unable to reach GitHub.'; else if (e?.message) msg = `Failed to sync org metrics: ${e.message}`;
+		await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg);
+		updateStatusBar();
+	}
+}
+
