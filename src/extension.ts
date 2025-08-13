@@ -63,11 +63,17 @@ class UsagePanel {
 		this._dispatch = async (message: any) => {
 			switch (message.type) {
 				case 'getConfig': {
-					const cfgNew = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-					const cfgOld = vscode.workspace.getConfiguration('copilotPremiumMonitor');
-					let hasSession = false; try { const s = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: false }); hasSession = !!s; } catch (e) { noop(); }
-					const hasPat = !!((cfgNew.get('token') as string | undefined)?.trim());
-					this.post({ type: 'config', config: { budget: (cfgNew.get('budget') as number | undefined) ?? (cfgOld.get('budget') as number | undefined), org: (cfgNew.get('org') as string | undefined) ?? (cfgOld.get('org') as string | undefined), mode: (cfgNew.get('mode') as string | undefined) ?? 'auto', warnAtPercent: Number(cfgNew.get('warnAtPercent') ?? 80), dangerAtPercent: Number(cfgNew.get('dangerAtPercent') ?? 100), hasPat, hasSession } });
+					try {
+						const cfgNew = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+						const cfgOld = vscode.workspace.getConfiguration('copilotPremiumMonitor');
+						let hasSession = false; try { const s = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: false }); hasSession = !!s; } catch (e) { noop(); }
+						const hasPat = !!((cfgNew.get('token') as string | undefined)?.trim());
+						this.post({ type: 'config', config: { budget: (cfgNew.get('budget') as number | undefined) ?? (cfgOld.get('budget') as number | undefined), org: (cfgNew.get('org') as string | undefined) ?? (cfgOld.get('org') as string | undefined), mode: (cfgNew.get('mode') as string | undefined) ?? 'auto', warnAtPercent: Number(cfgNew.get('warnAtPercent') ?? 80), dangerAtPercent: Number(cfgNew.get('dangerAtPercent') ?? 100), hasPat, hasSession } });
+					} catch (e) {
+						// Guaranteed fallback config so tests relying on config message never fail silently
+						this.post({ type: 'config', config: { budget: 0, org: undefined, mode: 'auto', warnAtPercent: 80, dangerAtPercent: 100, hasPat: false, hasSession: false }, error: true });
+						noop();
+					}
 					break;
 				}
 				case 'openSettings': { await vscode.commands.executeCommand('workbench.action.openSettings', 'copilotPremiumUsageMonitor'); break; }
