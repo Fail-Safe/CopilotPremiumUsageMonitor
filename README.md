@@ -88,6 +88,31 @@ code --install-extension fail-safe.copilot-premium-usage-monitor
 2) Build
 3) F5 (Extension Development Host)
 
+### Development / Testing
+
+Common scripts:
+
+| Command | Purpose |
+| ------- | ------- |
+| `npm run compile` | TypeScript watch build |
+| `npm test` | Unit + extension integration tests (no full coverage instrumentation) |
+| `npm run test:coverage` | Unit test coverage (extension host not instrumented) |
+| `npm run test:coverage:full` | Full instrumentation: unit + extension activation with combined coverage merge |
+| `npm run clean` | Remove build + coverage artifacts (safe) |
+| `npm run clean:full` | Deep clean (also uses `git clean -fdX`) – removes ignored/untracked build artifacts |
+
+Artifacts removed by `clean` script:
+- `out/` (compiled JS)
+- `coverage/`, `.nyc_output/`, `.node_coverage/`
+- `.tsbuildinfo`
+
+### Cleanup Automation
+
+The `scripts/clean-artifacts.sh` script centralizes safe removal of transient artifacts. It is referenced by the npm scripts above so local and CI workflows remain consistent.
+
+If you add new transient directories (e.g., `dist/` or `reports/`), update both `.gitignore` and this script.
+
+
 ## Release / Changelog
 
 See [CHANGELOG](./CHANGELOG.md).
