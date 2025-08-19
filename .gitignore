@@ -10,3 +10,4 @@ node_modules/
 coverage/*
 !coverage/coverage-badge.json
 .tsbuildinfo
+.eslintcache
