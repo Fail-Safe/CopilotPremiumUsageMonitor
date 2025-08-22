@@ -12,6 +12,8 @@ suite('Secure token indicator', () => {
 
     test('indicator shows when secure token set and plaintext cleared', async () => {
         const api = await activate();
+        // Ensure clean start
+        await api._test_clearSecretToken?.();
         // Ensure no prior panel
         api._test_closePanel?.();
         // Stub input for secure token command

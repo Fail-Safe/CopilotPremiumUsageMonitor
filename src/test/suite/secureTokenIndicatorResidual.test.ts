@@ -12,6 +12,8 @@ suite('Secure token indicator (residual plaintext)', () => {
 
     test('indicator shows with warning style when secure + plaintext present', async () => {
         const api = await activate();
+        // Ensure clean start
+        await api._test_clearSecretToken?.();
         api._test_closePanel?.();
         // Seed plaintext token setting (legacy)
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'legacy_plain_token', vscode.ConfigurationTarget.Global);
