@@ -178,6 +178,68 @@ function showErrorBanner(msg) {
           const hasSession = !!cfg.hasSession;
           signInBtn.style.display = (needsOrg && !hasPat && !hasSession) ? '' : 'none';
         }
+        // Mark summary as stale if in personal context without any token (secure or plaintext)
+        try {
+          const needsTokenPersonal = effectiveMode === 'personal' && !cfg.hasSecurePat && !cfg.residualPlaintext;
+          if (needsTokenPersonal) {
+            const summary = document.getElementById('summary');
+            if (summary && !summary.classList.contains('summary-error')) {
+              summary.classList.add('summary-error');
+              if (!document.getElementById('summary-unavailable')) {
+                const unavailable = document.createElement('div');
+                unavailable.id = 'summary-unavailable';
+                unavailable.textContent = cfg.noTokenStaleMessage || 'Awaiting secure token for personal spend updates.';
+                unavailable.style.color = '#888';
+                unavailable.style.fontWeight = 'bold';
+                unavailable.style.marginTop = '12px';
+                unavailable.style.fontSize = '16px';
+                summary.appendChild(unavailable);
+              }
+            }
+          }
+        } catch { }
+        // Secure token indicator (shows whenever a secure PAT exists). If residual plaintext also exists, use warning styling.
+        let secureInd = document.getElementById('secure-token-indicator');
+        if (cfg.hasSecurePat) {
+          if (!secureInd) {
+            secureInd = document.createElement('div');
+            secureInd.id = 'secure-token-indicator';
+            secureInd.style.padding = '2px 8px';
+            secureInd.style.borderRadius = '12px';
+            secureInd.style.fontSize = '11px';
+            secureInd.style.display = 'inline-flex';
+            secureInd.style.alignItems = 'center';
+            secureInd.style.gap = '4px';
+            secureInd.style.marginLeft = '8px';
+            const icon = document.createElement('span');
+            icon.id = 'secure-token-indicator-icon';
+            secureInd.appendChild(icon);
+            const txt = document.createElement('span');
+            txt.id = 'secure-token-indicator-text';
+            secureInd.appendChild(txt);
+            const controls = document.querySelector('.controls .right-group') || document.querySelector('.controls');
+            if (controls) controls.appendChild(secureInd);
+          }
+          // Update styling/content based on whether plaintext also present
+          const iconSpan = secureInd.querySelector('#secure-token-indicator-icon');
+          const textSpan = secureInd.querySelector('#secure-token-indicator-text');
+          if (cfg.securePatOnly) {
+            secureInd.style.background = 'var(--vscode-testing-iconPassed, #1b6e3b)';
+            secureInd.style.color = '#fff';
+            secureInd.title = cfg.secureTokenTitle || 'Secure token stored in VS Code Secret Storage (encrypted by your OS).';
+            if (iconSpan) iconSpan.textContent = '🔐';
+            if (textSpan) textSpan.textContent = (cfg.secureTokenText || 'Secure token set');
+          } else {
+            secureInd.style.background = 'var(--vscode-inputValidation-warningBackground, #fff8d1)';
+            secureInd.style.color = 'var(--vscode-inputValidation-warningForeground, #5c4400)';
+            secureInd.style.border = '1px solid var(--vscode-inputValidation-warningBorder, #d5b200)';
+            secureInd.title = cfg.secureTokenTitleResidual || 'Secure token present (plaintext copy still in settings – clear it).';
+            if (iconSpan) iconSpan.textContent = '🔐⚠️';
+            if (textSpan) textSpan.textContent = (cfg.secureTokenTextResidual || 'Secure token (clear plaintext)');
+          }
+        } else if (secureInd) {
+          secureInd.remove();
+        }
       } catch { }
     } else if (msg.type === 'clearError') {
       // Clear stale/error state
@@ -267,12 +329,114 @@ function showErrorBanner(msg) {
     } else if (msg.type === 'clearIconOverrideWarning') {
       const banner = document.getElementById('icon-override-warning');
       if (banner) banner.remove();
+    } else if (msg.type === 'migrationHint') {
+      // Show a discrete migration hint if legacy plaintext token present
+      let hint = document.getElementById('migration-hint');
+      if (!hint) {
+        hint = document.createElement('div');
+        hint.id = 'migration-hint';
+        hint.style.background = 'var(--vscode-inputValidation-infoBackground, #e8f2ff)';
+        hint.style.color = 'var(--vscode-inputValidation-infoForeground, #00457a)';
+        hint.style.border = '1px solid var(--vscode-inputValidation-infoBorder, #5aa3e8)';
+        hint.style.padding = '6px 10px';
+        hint.style.borderRadius = '4px';
+        hint.style.marginBottom = '10px';
+        hint.style.fontSize = '12px';
+        hint.style.display = 'flex';
+        hint.style.alignItems = 'center';
+        const icon = document.createElement('span');
+        icon.textContent = '🔐';
+        icon.style.marginRight = '6px';
+        hint.appendChild(icon);
+        const text = document.createElement('span');
+        text.textContent = msg.message || 'Migrate token to secure storage.';
+        hint.appendChild(text);
+        const migrateBtn = document.createElement('button');
+        migrateBtn.textContent = msg.buttonLabel || 'Migrate Now';
+        migrateBtn.style.marginLeft = 'auto';
+        migrateBtn.style.fontSize = '11px';
+        migrateBtn.className = 'btn';
+        migrateBtn.addEventListener('click', () => {
+          if (/clear/i.test(migrateBtn.textContent)) {
+            vscode?.postMessage({ type: 'clearPlaintextToken' });
+          } else {
+            vscode?.postMessage({ type: 'migrateToken' });
+          }
+        });
+        hint.appendChild(migrateBtn);
+        const container = document.getElementById('error-banner-container') || document.body;
+        container.prepend(hint);
+      }
+    } else if (msg.type === 'migrationComplete') {
+      const hint = document.getElementById('migration-hint');
+      if (hint) hint.remove();
+      // Show ephemeral success toast-like banner
+      let done = document.getElementById('migration-success');
+      if (!done) {
+        done = document.createElement('div');
+        done.id = 'migration-success';
+        done.style.background = 'var(--vscode-testing-iconPassed, #1b6e3b)';
+        done.style.color = '#fff';
+        done.style.padding = '6px 10px';
+        done.style.borderRadius = '4px';
+        done.style.fontSize = '12px';
+        done.style.marginBottom = '10px';
+        done.style.display = 'flex';
+        done.style.alignItems = 'center';
+        const icon = document.createElement('span');
+        icon.textContent = '✅';
+        icon.style.marginRight = '6px';
+        done.appendChild(icon);
+        const text = document.createElement('span');
+        text.textContent = msg.message || 'Token migrated.';
+        done.appendChild(text);
+        const container = document.getElementById('error-banner-container') || document.body;
+        container.prepend(done);
+        setTimeout(() => { try { done.remove(); } catch { } }, 6000);
+      }
+    } else if (msg.type === 'setTokenHint') {
+      // Show a hint when no secure token is present (user cleared or never set)
+      let hint = document.getElementById('set-token-hint');
+      if (!hint) {
+        hint = document.createElement('div');
+        hint.id = 'set-token-hint';
+        hint.style.background = 'var(--vscode-inputValidation-infoBackground, #e8f2ff)';
+        hint.style.color = 'var(--vscode-inputValidation-infoForeground, #00457a)';
+        hint.style.border = '1px solid var(--vscode-inputValidation-infoBorder, #5aa3e8)';
+        hint.style.padding = '6px 10px';
+        hint.style.borderRadius = '4px';
+        hint.style.marginBottom = '10px';
+        hint.style.fontSize = '12px';
+        hint.style.display = 'flex';
+        hint.style.alignItems = 'center';
+        const icon = document.createElement('span');
+        icon.textContent = '🔑';
+        icon.style.marginRight = '6px';
+        hint.appendChild(icon);
+        const text = document.createElement('span');
+        text.textContent = msg.message || 'Add a personal token for spend tracking.';
+        hint.appendChild(text);
+        const setBtn = document.createElement('button');
+        setBtn.textContent = msg.buttonLabel || 'Set Token';
+        setBtn.style.marginLeft = 'auto';
+        setBtn.style.fontSize = '11px';
+        setBtn.className = 'btn';
+        setBtn.addEventListener('click', () => {
+          vscode?.postMessage({ type: 'setTokenSecure' });
+        });
+        hint.appendChild(setBtn);
+        const container = document.getElementById('error-banner-container') || document.body;
+        container.prepend(hint);
+      }
     }
   });
 
-  $('#openSettings').addEventListener('click', () => {
-    vscode?.postMessage({ type: 'openSettings' });
-  });
+  const openSettingsBtn = $('#openSettings');
+  if (openSettingsBtn) {
+    openSettingsBtn.addEventListener('click', () => {
+      vscode?.postMessage({ type: 'openSettings' });
+    });
+  }
   const signInBtn = document.querySelector('#signIn');
   if (signInBtn) {
     signInBtn.addEventListener('click', () => {

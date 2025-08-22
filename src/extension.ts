@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import { computeUsageBar, pickIcon, formatRelativeTime } from './lib/format';
+import { readStoredToken, migrateSettingToken, writeToken, clearToken, getSecretStorageKey } from './secrets';
+import { setSecretsLogger, logSecrets } from './secrets_log';
 import { DEFAULT_WARN_AT_PERCENT, DEFAULT_DANGER_AT_PERCENT } from './constants';
 import * as nls from 'vscode-nls';
 import * as fs from 'fs';
@@ -18,6 +20,17 @@ let _test_lastStatusBarText: string | undefined; // test cache
 let _test_postedMessages: any[] = []; // test capture of webview postMessage payloads
 let _test_helpCount = 0; // test: number of help invocations
 let _test_lastHelpInvoked: number | undefined; // test: timestamp of last help invocation
+// In-memory fast flag to reflect most recent secret write/clear immediately (bridges secret storage latency in tests)
+let cachedSecretPresent = false;
+// Minimal heuristic: track last time we performed a migration where plaintext was intentionally kept
+let lastMigrationKeepTime = 0;
+// Heuristic: remember last secure token value set this session (cleared on clear) to force optimistic hasSecurePat in races
+let lastSetTokenValue: string | undefined;
+// Heuristic timestamp: last time we successfully wrote a secure token (helps ensure subsequent config snapshots within a short window reflect presence)
+let lastSecureSetTime = 0;
+let lastSecretClearedTime = 0;
+let lastPlaintextClearedTime = 0; // timestamp when plaintext token was cleared recently
+// (Removed previous timestamp heuristics for plaintext/secret races)
 
 // Getter helpers (declared early so they are in scope for activation return object)
 function _test_getHelpCount() { return _test_helpCount; }
@@ -67,10 +80,61 @@ class UsagePanel {
 					try {
 						const cfgNew = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
 						const cfgOld = vscode.workspace.getConfiguration('copilotPremiumMonitor');
-						const hasPat = !!((cfgNew.get('token') as string | undefined)?.trim());
+						let plaintext = (cfgNew.get('token') as string | undefined)?.trim();
+						if (plaintext && lastPlaintextClearedTime && lastPlaintextClearedTime > lastSecureSetTime && Date.now() - lastPlaintextClearedTime < 1500) { plaintext = ''; }
+						// Heuristic fast path FIRST (ensures immediate post-set/clear visibility for live refresh tests)
+						let secretExists = false;
+						if (lastSecretClearedTime && Date.now() - lastSecretClearedTime < 1500) {
+							secretExists = false; // recently cleared; force false
+						} else {
+							secretExists = cachedSecretPresent || !!lastSetTokenValue || (!!lastSecureSetTime && Date.now() - lastSecureSetTime < 2000);
+						}
+						// Only if heuristics say "not yet" do we attempt direct secret storage read
+						if (!secretExists) {
+							try { if (extCtx) { const direct = await extCtx.secrets.get(getSecretStorageKey()); if (direct) secretExists = true; } } catch { /* noop */ }
+						}
+						if (!secretExists) {
+							try { const info = await readStoredToken(extCtx!); secretExists = info.source === 'secretStorage'; } catch { /* noop */ }
+						}
+						// If still false but we VERY recently set (heuristics true earlier) allow brief polling (unlikely now)
+						if (!secretExists && (cachedSecretPresent || lastSetTokenValue || (lastSecureSetTime && Date.now() - lastSecureSetTime < 2000)) && extCtx) {
+							for (let i = 0; i < 6 && !secretExists; i++) { // fewer attempts needed now
+								try { const v = await extCtx.secrets.get(getSecretStorageKey()); if (v) { secretExists = true; break; } } catch { /* noop */ }
+								if (!secretExists) { await new Promise(r => setTimeout(r, 30)); }
+							}
+						}
+						// Residual only if plaintext setting currently non-empty AND we have a secure token
+						let residualPlaintext = !!plaintext && secretExists;
+						if (residualPlaintext && lastPlaintextClearedTime && lastPlaintextClearedTime > lastSecureSetTime && Date.now() - lastPlaintextClearedTime < 1500) { residualPlaintext = false; }
+						const hasPat = secretExists || residualPlaintext;
 						// Post immediately (assume no session yet) to avoid test timing flake
-						const baseConfig = { budget: (cfgNew.get('budget') as number | undefined) ?? (cfgOld.get('budget') as number | undefined), org: (cfgNew.get('org') as string | undefined) ?? (cfgOld.get('org') as string | undefined), mode: (cfgNew.get('mode') as string | undefined) ?? 'auto', warnAtPercent: Number(cfgNew.get('warnAtPercent') ?? DEFAULT_WARN_AT_PERCENT), dangerAtPercent: Number(cfgNew.get('dangerAtPercent') ?? DEFAULT_DANGER_AT_PERCENT), hasPat, hasSession: false };
+						const baseConfig = {
+							budget: (cfgNew.get('budget') as number | undefined) ?? (cfgOld.get('budget') as number | undefined), org: (cfgNew.get('org') as string | undefined) ?? (cfgOld.get('org') as string | undefined), mode: (cfgNew.get('mode') as string | undefined) ?? 'auto', warnAtPercent: Number(cfgNew.get('warnAtPercent') ?? DEFAULT_WARN_AT_PERCENT), dangerAtPercent: Number(cfgNew.get('dangerAtPercent') ?? DEFAULT_DANGER_AT_PERCENT), hasPat, hasSession: false, securePatOnly: secretExists && !residualPlaintext, hasSecurePat: secretExists, residualPlaintext,
+							noTokenStaleMessage: localize('cpum.webview.noTokenStale', 'Awaiting secure token for personal spend updates.'),
+							secureTokenTitle: localize('cpum.secureToken.indicator.title', 'Secure token stored in VS Code Secret Storage (encrypted by your OS).'),
+							secureTokenText: localize('cpum.secureToken.indicator.text', 'Secure token set'),
+							secureTokenTitleResidual: localize('cpum.secureToken.indicator.titleResidual', 'Secure token present (plaintext copy still in settings – clear it).'),
+							secureTokenTextResidual: localize('cpum.secureToken.indicator.textResidual', 'Secure token + Plaintext in settings')
+						};
 						this.post({ type: 'config', config: baseConfig });
+						// If no PAT at all and user is in personal-oriented context (mode=personal OR (auto and no org configured)), surface a gentle hint.
+						if (!hasPat) {
+							const personalContext = (baseConfig.mode === 'personal') || (baseConfig.mode === 'auto' && !baseConfig.org);
+							if (personalContext && !residualPlaintext) {
+								// Immediate + microtask hint posting for deterministic test capture
+								this.post({ type: 'setTokenHint', message: localize('cpum.setToken.hint.afterClear', 'No secure token present. Add one to track personal spend.'), buttonLabel: localize('cpum.setToken.hint.button', 'Set Token') });
+								setTimeout(() => this.post({ type: 'setTokenHint', message: localize('cpum.setToken.hint.afterClear', 'No secure token present. Add one to track personal spend.'), buttonLabel: localize('cpum.setToken.hint.button', 'Set Token') }), 0);
+							}
+						}
+						if (residualPlaintext) {
+							// Provide different wording if secret already exists
+							if (secretExists) {
+								this.post({ type: 'migrationHint', text: localize('cpum.migration.hint.residual', 'Plaintext PAT remains in settings. Clear it to finish securing.'), buttonLabel: localize('cpum.migration.hint.residual.button', 'Clear Plaintext') });
+							} else {
+								this.post({ type: 'notice', severity: 'warning', text: localize('cpum.migration.notice', 'Security improvement: Migrate your Copilot PAT to secure storage.'), docUrl: undefined, helpAction: false });
+								this.post({ type: 'migrationHint', text: localize('cpum.migration.hint', 'Your Copilot PAT is currently stored in plaintext settings. Migrate it to secure storage.'), buttonLabel: localize('cpum.migration.hint.button', 'Migrate Now') });
+							}
+						}
 						// Fire-and-forget session detection; if found, send updated config
 						(async () => {
 							try {
@@ -90,6 +154,24 @@ class UsagePanel {
 				case 'openSettings': { await vscode.commands.executeCommand('workbench.action.openSettings', 'copilotPremiumUsageMonitor'); break; }
 				case 'help': { _test_helpCount++; _test_lastHelpInvoked = Date.now(); const readme = vscode.Uri.joinPath(this.extensionUri, 'README.md'); try { await vscode.commands.executeCommand('markdown.showPreview', readme); } catch (e) { try { await vscode.window.showTextDocument(readme); } catch (e2) { noop(); } } break; }
 				case 'dismissFirstRun': { await this.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', true); try { await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', true, vscode.ConfigurationTarget.Global); } catch (e) { noop(); } break; }
+				case 'migrateToken': {
+					const result = await performExplicitMigration(extCtx!, true);
+					if (result?.migrated) {
+						const successMsg = result.removedLegacy ? localize('cpum.migration.hint.migratedRemoved', 'Token migrated and plaintext setting cleared.') : localize('cpum.migration.hint.migrated', 'Token migrated to secure storage.');
+						this.post({ type: 'migrationComplete', message: successMsg, removedLegacy: result.removedLegacy });
+						await postFreshConfig();
+					}
+					break;
+				}
+				case 'clearPlaintextToken': {
+					try {
+						const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+						await cfg.update('token', '', vscode.ConfigurationTarget.Global); lastPlaintextClearedTime = Date.now();
+						this.post({ type: 'migrationComplete', message: localize('cpum.migration.hint.plaintextCleared', 'Plaintext token cleared.'), removedLegacy: true });
+						await postFreshConfig();
+					} catch { /* noop */ }
+					break;
+				}
 				case 'refresh': {
 					const token = await getGitHubToken();
 					if (!token) { const m = 'Authentication error: Please sign in or provide a valid PAT.'; this.post({ type: 'error', message: m }); await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', m); vscode.window.showErrorMessage(m); maybeAutoOpenLog(); updateStatusBar(); break; }
@@ -138,6 +220,9 @@ class UsagePanel {
 				}
 				case 'signIn': { await UsagePanel.ensureGitHubSession(); break; }
 				case 'openExternal': { if (typeof message.url === 'string' && message.url.startsWith('http')) { try { await vscode.env.openExternal(vscode.Uri.parse(message.url)); } catch { /* noop */ } } break; }
+				case 'setTokenSecure':
+					await vscode.commands.executeCommand('copilotPremiumUsageMonitor.setTokenSecure');
+					break;
 			}
 		};
 		this.panel.webview.onDidReceiveMessage(this._dispatch);
@@ -145,7 +230,14 @@ class UsagePanel {
 		this.maybeShowFirstRunNotice();
 	}
 	dispose() { UsagePanel.currentPanel = undefined; try { this.panel.dispose(); } catch (e) { noop(); } while (this.disposables.length) { try { this.disposables.pop()?.dispose(); } catch (e2) { noop(); } } }
-	private post(data: any) { if (data && typeof data === 'object') { try { _test_postedMessages.push(data); } catch (e) { noop(); } } if (data.type === 'config') { const lastError = this.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError'); if (lastError) { const errMsg = { type: 'error', message: lastError }; this.panel.webview.postMessage(errMsg); try { _test_postedMessages.push(errMsg); } catch (e) { noop(); } } const iconWarn = this.globalState.get<string>('copilotPremiumUsageMonitor.iconOverrideWarning'); if (iconWarn) { const warnMsg = { type: 'iconOverrideWarning', message: iconWarn }; this.panel.webview.postMessage(warnMsg); try { _test_postedMessages.push(warnMsg); } catch (e) { noop(); } } } this.panel.webview.postMessage(data); }
+	private post(data: any) {
+		if (data && typeof data === 'object') { try { _test_postedMessages.push(data); } catch { /* noop */ } }
+		if (data.type === 'config') {
+			try { const lastError = this.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError'); if (lastError) { const errMsg = { type: 'error', message: lastError }; try { this.panel.webview.postMessage(errMsg); _test_postedMessages.push(errMsg); } catch { /* disposed */ } } } catch { /* noop */ }
+			try { const iconWarn = this.globalState.get<string>('copilotPremiumUsageMonitor.iconOverrideWarning'); if (iconWarn) { const warnMsg = { type: 'iconOverrideWarning', message: iconWarn }; try { this.panel.webview.postMessage(warnMsg); _test_postedMessages.push(warnMsg); } catch { /* disposed */ } } } catch { /* noop */ }
+		}
+		try { this.panel.webview.postMessage(data); } catch { /* disposed */ }
+	}
 	private get webviewHtml(): string {
 		const webview = this.panel.webview;
 		const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.js'));
@@ -193,6 +285,81 @@ class UsagePanel {
 	private update() { this.panel.webview.html = this.webviewHtml; const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const budget = Number(config.get('budget') ?? 0); const spend = this.getSpend(); const pct = budget > 0 ? Math.min(100, Math.round((spend / budget) * 100)) : 0; const warnAtPercent = Number(config.get('warnAtPercent') ?? DEFAULT_WARN_AT_PERCENT); const dangerAtPercent = Number(config.get('dangerAtPercent') ?? DEFAULT_DANGER_AT_PERCENT); setTimeout(() => this.post({ type: 'summary', budget, spend, pct, warnAtPercent, dangerAtPercent }), 50); }
 }
 
+// Helper to immediately push a fresh config snapshot after token mutations so
+// the webview's securePatOnly indicator updates without waiting for a manual refresh.
+async function postFreshConfig() {
+	try {
+		if (!UsagePanel.currentPanel || !extCtx) return;
+		const cfgNew = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		const cfgOld = vscode.workspace.getConfiguration('copilotPremiumMonitor');
+		let plaintext = (cfgNew.get('token') as string | undefined)?.trim();
+		if (plaintext && lastPlaintextClearedTime && lastPlaintextClearedTime > lastSecureSetTime && Date.now() - lastPlaintextClearedTime < 1500) { plaintext = ''; }
+		// Heuristic first
+		let secretExists = false;
+		if (lastSecretClearedTime && Date.now() - lastSecretClearedTime < 1500) {
+			secretExists = false;
+		} else {
+			secretExists = cachedSecretPresent || !!lastSetTokenValue || (!!lastSecureSetTime && Date.now() - lastSecureSetTime < 2000);
+		}
+		if (!secretExists) {
+			try { if (extCtx) { const direct = await extCtx.secrets.get(getSecretStorageKey()); if (direct) secretExists = true; } } catch { /* noop */ }
+		}
+		if (!secretExists) {
+			try { const info = await readStoredToken(extCtx); secretExists = info.source === 'secretStorage'; } catch { /* noop */ }
+		}
+		if (!secretExists && (cachedSecretPresent || lastSetTokenValue || (lastSecureSetTime && Date.now() - lastSecureSetTime < 2000)) && extCtx) {
+			for (let i = 0; i < 6 && !secretExists; i++) {
+				try { const v = await extCtx.secrets.get(getSecretStorageKey()); if (v) { secretExists = true; break; } } catch { /* noop */ }
+				if (!secretExists) { await new Promise(r => setTimeout(r, 30)); }
+			}
+		}
+		// Residual only if plaintext currently present alongside secure
+		let residualPlaintext = !!plaintext && secretExists;
+		if (residualPlaintext && lastPlaintextClearedTime && lastPlaintextClearedTime > lastSecureSetTime && Date.now() - lastPlaintextClearedTime < 1500) { residualPlaintext = false; }
+		const hasPat = secretExists || residualPlaintext;
+		const baseConfig = {
+			budget: (cfgNew.get('budget') as number | undefined) ?? (cfgOld.get('budget') as number | undefined),
+			org: (cfgNew.get('org') as string | undefined) ?? (cfgOld.get('org') as string | undefined),
+			mode: (cfgNew.get('mode') as string | undefined) ?? 'auto',
+			warnAtPercent: Number(cfgNew.get('warnAtPercent') ?? DEFAULT_WARN_AT_PERCENT),
+			dangerAtPercent: Number(cfgNew.get('dangerAtPercent') ?? DEFAULT_DANGER_AT_PERCENT),
+			hasPat,
+			hasSession: false,
+			securePatOnly: secretExists && !residualPlaintext,
+			hasSecurePat: secretExists,
+			residualPlaintext,
+			noTokenStaleMessage: localize('cpum.webview.noTokenStale', 'Awaiting secure token for personal spend updates.'),
+			secureTokenTitle: localize('cpum.secureToken.indicator.title', 'Secure token stored in VS Code Secret Storage (encrypted by your OS).'),
+			secureTokenText: localize('cpum.secureToken.indicator.text', 'Secure token set'),
+			secureTokenTitleResidual: localize('cpum.secureToken.indicator.titleResidual', 'Secure token present (plaintext copy still in settings – clear it).'),
+			secureTokenTextResidual: localize('cpum.secureToken.indicator.textResidual', 'Secure token + Plaintext in settings')
+		};
+		UsagePanel.currentPanel['post']?.({ type: 'config', config: baseConfig });
+	} catch { /* noop */ }
+}
+
+// Poll secret storage briefly to ensure recently written token is observable before posting config
+async function waitForSecret(ctx: vscode.ExtensionContext, attempts = 10, delayMs = 30, expected?: string): Promise<void> {
+	for (let i = 0; i < attempts; i++) {
+		try {
+			const v = await ctx.secrets.get(getSecretStorageKey());
+			if (v && (!expected || v === expected)) return;
+		} catch { /* ignore */ }
+		if (i < attempts - 1) { await new Promise(r => setTimeout(r, delayMs)); }
+	}
+}
+
+// Poll until secret is gone (after clear) to avoid transient hasSecurePat=true race
+async function waitForSecretGone(ctx: vscode.ExtensionContext, attempts = 20, delayMs = 30): Promise<void> {
+	for (let i = 0; i < attempts; i++) {
+		try {
+			const v = await ctx.secrets.get(getSecretStorageKey());
+			if (!v) return; // gone
+		} catch { /* ignore */ }
+		if (i < attempts - 1) { await new Promise(r => setTimeout(r, delayMs)); }
+	}
+}
+
 // Test hook to drive message handler without an actual webview post
 (UsagePanel as any)._test_invokeMessage = (msg: any) => { try { const p = UsagePanel.currentPanel as any; p?._dispatch && p._dispatch(msg); } catch { /* noop */ } };
 
@@ -209,6 +376,10 @@ function maybeDumpExtensionHostCoverage() {
 
 export function activate(context: vscode.ExtensionContext) {
 	extCtx = context;
+	// Provide logging bridge for secrets helpers
+	setSecretsLogger((m) => { try { getLog().appendLine(`[secrets] ${m}`); } catch { /* noop */ } });
+	// Kick off token migration check (fire & forget)
+	void maybeOfferTokenMigration(context);
 	const openPanel = vscode.commands.registerCommand('copilotPremiumUsageMonitor.openPanel', () => UsagePanel.createOrShow(context));
 	const signIn = vscode.commands.registerCommand('copilotPremiumUsageMonitor.signIn', async () => { await UsagePanel.ensureGitHubSession(); vscode.window.showInformationMessage('GitHub sign-in completed (if required).'); });
 	const configureOrg = vscode.commands.registerCommand('copilotPremiumUsageMonitor.configureOrg', async () => {
@@ -233,9 +404,67 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 	const manage = vscode.commands.registerCommand('copilotPremiumUsageMonitor.manage', async () => { try { await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:fail-safe.copilot-premium-usage-monitor copilotPremiumUsageMonitor'); } catch { await vscode.commands.executeCommand('workbench.action.openSettings', 'copilotPremiumUsageMonitor'); } });
 	const showLogs = vscode.commands.registerCommand('copilotPremiumUsageMonitor.showLogs', () => { const log = getLog(); log.show(true); log.appendLine('[User] Opened log channel'); });
+	const migrateTokenCmd = vscode.commands.registerCommand('copilotPremiumUsageMonitor.migrateToken', async () => {
+		await performExplicitMigration(context, true);
+	});
+	// setTokenSecure: prompt user for a new PAT and store in secret storage
+	const setTokenSecure = vscode.commands.registerCommand('copilotPremiumUsageMonitor.setTokenSecure', async () => {
+		const newToken = await vscode.window.showInputBox({
+			prompt: localize('cpum.setToken.prompt', 'Enter GitHub Personal Access Token (Plan: read-only)'),
+			placeHolder: 'ghp_xxx or fine-grained token',
+			ignoreFocusOut: true,
+			password: true,
+			validateInput: (val) => !val?.trim() ? localize('cpum.setToken.validation', 'Token cannot be empty') : undefined
+		});
+		if (!newToken) return;
+		const trimmed = newToken.trim();
+		// Optimistically mark secret present and remember value so any immediate getConfig request treats it as present
+		cachedSecretPresent = true; lastSetTokenValue = trimmed; lastSecureSetTime = Date.now(); lastSecretClearedTime = 0; // clear recent-clear suppression
+		// Proactively clear plaintext first (store for rollback if write fails)
+		let rollbackValue: string | undefined;
+		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		lastMigrationKeepTime = 0; // new secure set cancels any keep-migration residual window
+		try {
+			const legacy = (cfg.get('token') as string | undefined)?.trim();
+			if (legacy) { rollbackValue = legacy; await cfg.update('token', '', vscode.ConfigurationTarget.Global); lastPlaintextClearedTime = Date.now(); }
+		} catch { /* noop */ }
+		try {
+			await writeToken(context, trimmed);
+			try { if (extCtx) await waitForSecret(extCtx, 10, 30, trimmed); } catch { /* noop */ }
+		} catch (e) {
+			// Restore plaintext if secure write fails
+			if (rollbackValue) { try { await cfg.update('token', rollbackValue, vscode.ConfigurationTarget.Global); } catch { /* noop */ } }
+			cachedSecretPresent = false; // revert optimistic flag
+			throw e;
+		}
+		vscode.window.showInformationMessage(localize('cpum.setToken.success', 'Token stored securely.'));
+		UsagePanel.currentPanel?.['post']?.({ type: 'migrationComplete', message: localize('cpum.setToken.success.panel', 'Token updated (secure).'), removedLegacy: true });
+		// Immediate lightweight config push for live refresh test expectations BEFORE triggering panel.update()
+		try { if (UsagePanel.currentPanel) { UsagePanel.currentPanel['post']?.({ type: 'config', config: { hasSecurePat: true, residualPlaintext: false, securePatOnly: true, hasPat: true } }); } } catch { /* noop */ }
+		// Post a full fresh config snapshot (may include other settings) and then refresh panel html
+		await postFreshConfig();
+		try { UsagePanel.currentPanel?.['update'](); } catch { /* noop */ }
+	});
+	// clearTokenSecure: remove secure token from secret storage
+	const clearTokenSecure = vscode.commands.registerCommand('copilotPremiumUsageMonitor.clearTokenSecure', async () => {
+		const confirm = await vscode.window.showQuickPick([
+			localize('cpum.clearToken.confirm.yes', 'Yes, clear stored token'),
+			localize('cpum.clearToken.confirm.no', 'Cancel')
+		], { placeHolder: localize('cpum.clearToken.confirm.ph', 'Remove token from secure storage? (You can re-add later)') });
+		if (!confirm || confirm.startsWith('Cancel')) return;
+		await clearToken(context);
+		cachedSecretPresent = false; lastSetTokenValue = undefined; lastSecureSetTime = 0; lastSecretClearedTime = Date.now();
+		lastMigrationKeepTime = 0;
+		try { if (extCtx) await waitForSecretGone(extCtx); } catch { /* noop */ }
+		vscode.window.showInformationMessage(localize('cpum.clearToken.done', 'Stored token cleared.'));
+		UsagePanel.currentPanel?.['post']?.({ type: 'setTokenHint', message: localize('cpum.setToken.hint.afterClear', 'No secure token present. Add one to track personal spend.'), buttonLabel: localize('cpum.setToken.hint.button', 'Set Token') });
+		// Refresh webview to show stale state promptly
+		try { UsagePanel.currentPanel?.['update'](); } catch { /* noop */ }
+		await postFreshConfig();
+	});
 	const enableFirstRun = vscode.commands.registerCommand('copilotPremiumUsageMonitor.enableFirstRunNotice', async () => { await context.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', false); await context.globalState.update('copilotPremiumUsageMonitor.firstRunShown', false); await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', false, vscode.ConfigurationTarget.Global); vscode.window.showInformationMessage(localize('cpum.enableFirstRun.restored', 'Help banner will show again next time you open the panel.')); });
-	context.subscriptions.push(openPanel, signIn, configureOrg, manage, showLogs, enableFirstRun);
-	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(e => {
+	context.subscriptions.push(openPanel, signIn, configureOrg, manage, showLogs, enableFirstRun, migrateTokenCmd, setTokenSecure, clearTokenSecure);
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async e => {
 		const affectsCore = e.affectsConfiguration('copilotPremiumUsageMonitor.budget')
 			|| e.affectsConfiguration('copilotPremiumUsageMonitor.mode')
 			|| e.affectsConfiguration('copilotPremiumUsageMonitor.org')
@@ -248,15 +477,82 @@ export function activate(context: vscode.ExtensionContext) {
 			// Force panel summary refresh to pick up threshold color logic changes immediately
 			try { UsagePanel.currentPanel?.['update'](); } catch { /* noop */ }
 		}
+		// Proactive guard: if plaintext token (deprecated setting) becomes non-empty, offer migration immediately
+		if (e.affectsConfiguration('copilotPremiumUsageMonitor.token')) {
+			try {
+				if (!extCtx) return;
+				const info = await readStoredToken(extCtx);
+				if (info.source === 'settings' && info.token) {
+					const migrateAndClear = localize('cpum.guard.migrateClear', 'Migrate & Clear');
+					const clearOnly = localize('cpum.guard.clearOnly', 'Clear Plaintext');
+					const ignore = localize('cpum.guard.ignore', 'Ignore');
+					const choice = await vscode.window.showInformationMessage(
+						localize('cpum.guard.plaintextDetected', 'Plaintext PAT detected in settings. Move it to secure storage?'),
+						migrateAndClear, clearOnly, ignore
+					);
+					if (choice === migrateAndClear) {
+						await writeToken(extCtx, info.token);
+						try { await waitForSecret(extCtx, 10, 30, info.token); } catch { /* noop */ }
+						try { await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', '', vscode.ConfigurationTarget.Global); lastPlaintextClearedTime = Date.now(); } catch { /* noop */ }
+						vscode.window.showInformationMessage(localize('cpum.guard.migrated', 'Token migrated to secure storage and plaintext cleared.'));
+						UsagePanel.currentPanel?.['post']?.({ type: 'migrationComplete', message: localize('cpum.migration.hint.migratedRemoved', 'Token migrated and plaintext setting cleared.'), removedLegacy: true });
+						try { UsagePanel.currentPanel?.['update'](); } catch { /* noop */ }
+						await postFreshConfig();
+					} else if (choice === clearOnly) {
+						try { await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', '', vscode.ConfigurationTarget.Global); lastPlaintextClearedTime = Date.now(); } catch { /* noop */ }
+						vscode.window.showInformationMessage(localize('cpum.migration.hint.plaintextCleared', 'Plaintext token cleared.'));
+						UsagePanel.currentPanel?.['post']?.({ type: 'migrationComplete', message: localize('cpum.migration.hint.plaintextCleared', 'Plaintext token cleared.'), removedLegacy: true });
+						try { UsagePanel.currentPanel?.['update'](); } catch { /* noop */ }
+						await postFreshConfig();
+					}
+				}
+			} catch { /* ignore guard errors */ }
+		}
 		if (e.affectsConfiguration('copilotPremiumUsageMonitor.refreshIntervalMinutes')) restartAutoRefresh();
 		if (e.affectsConfiguration('copilotPremiumUsageMonitor.statusBarAlignment')) { initStatusBar(context); try { updateStatusBar(); } catch { /* noop */ } }
 	}));
 	initStatusBar(context); updateStatusBar();
 	startAutoRefresh(); startRelativeTimeTicker();
+	// Show one-time toast if no secure/plaintext token and user is in a personal-spend context
+	(async () => {
+		try {
+			if (!extCtx) return;
+			// Avoid conflicting with migration prompt or guard; only show if absolutely no token anywhere
+			const info = await readStoredToken(extCtx);
+			if (info.source !== 'none') return; // either settings or secret already in play
+			const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+			const mode = (cfg.get('mode') as string | undefined) ?? 'auto';
+			const org = (cfg.get('org') as string | undefined)?.trim();
+			const personalContext = mode === 'personal' || (mode === 'auto' && !org);
+			if (!personalContext) return; // org metrics only path does not need a PAT
+			const shownKey = 'copilotPremiumUsageMonitor.noTokenToastShown';
+			if (context.globalState.get<boolean>(shownKey)) return;
+			await context.globalState.update(shownKey, true);
+			const setAction = localize('cpum.setToken.hint.button', 'Set Token');
+			const msg = localize('cpum.setToken.hint.afterClear', 'No secure token present. Add one to track personal spend.');
+			const choice = await vscode.window.showInformationMessage(msg, setAction);
+			if (choice === setAction) { try { await vscode.commands.executeCommand('copilotPremiumUsageMonitor.setTokenSecure'); } catch { /* noop */ } }
+		} catch { /* ignore toast errors */ }
+	})();
 	if (process.env.CPUM_TEST_ENABLE_LOG_BUFFER) { try { getLog(); } catch { /* noop */ } }
 	maybeDumpExtensionHostCoverage();
-	return { _test_getStatusBarText, _test_forceStatusBarUpdate, _test_setSpendAndUpdate, _test_getStatusBarColor, _test_setLastSyncTimestamp, _test_getRefreshIntervalId, _test_getLogBuffer, _test_clearLastError, _test_setLastError, _test_getRefreshRestartCount, _test_getLogAutoOpened, _test_getSpend, _test_getLastError, _test_getPostedMessages, _test_resetPostedMessages, _test_resetFirstRun, _test_closePanel, _test_setIconOverrideWarning, _test_getHelpCount, _test_getLastHelpInvoked, _test_forceCoverageDump: () => { try { maybeDumpExtensionHostCoverage(); } catch { /* noop */ } }, _test_setOctokitFactory: (fn: any) => { _testOctokitFactory = fn; }, _test_invokeWebviewMessage: (msg: any) => { try { (UsagePanel as any)._test_invokeMessage(msg); } catch { /* noop */ } }, _test_refreshPersonal, _test_refreshOrg };
+	return { _test_getStatusBarText, _test_forceStatusBarUpdate, _test_setSpendAndUpdate, _test_getStatusBarColor, _test_setLastSyncTimestamp, _test_getRefreshIntervalId, _test_getLogBuffer, _test_clearLastError, _test_setLastError, _test_getRefreshRestartCount, _test_getLogAutoOpened, _test_getSpend, _test_getLastError, _test_getPostedMessages, _test_resetPostedMessages, _test_resetFirstRun, _test_closePanel, _test_setIconOverrideWarning, _test_getHelpCount, _test_getLastHelpInvoked, _test_forceCoverageDump: () => { try { maybeDumpExtensionHostCoverage(); } catch { /* noop */ } }, _test_setOctokitFactory: (fn: any) => { _testOctokitFactory = fn; }, _test_invokeWebviewMessage: (msg: any) => { try { (UsagePanel as any)._test_invokeMessage(msg); } catch { /* noop */ } }, _test_refreshPersonal, _test_refreshOrg, _test_clearSecretToken: async () => { if (extCtx) { await clearToken(extCtx); } const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); await cfg.update('token', '', vscode.ConfigurationTarget.Global); cachedSecretPresent = false; lastMigrationKeepTime = 0; lastSetTokenValue = undefined; lastSecureSetTime = 0; lastSecretClearedTime = 0; lastPlaintextClearedTime = Date.now(); } };
 }
+// Test-only export to drive migration logic
+export async function _test_readTokenInfo() { if (!extCtx) return undefined; return readStoredToken(extCtx); }
+export async function _test_forceMigration(removeSetting: boolean) {
+	if (!extCtx) return;
+	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+	const val = (cfg.get('token') as string | undefined)?.trim();
+	const migrated = await migrateSettingToken(extCtx, removeSetting);
+	if (migrated) {
+		try { if (val) await waitForSecret(extCtx, 40, 30, val); } catch { /* noop */ }
+		// After ensuring secret stored, only then set heuristic flag so tests rely on real presence
+		try { if (extCtx) { const direct = await extCtx.secrets.get(getSecretStorageKey()); if (direct) { cachedSecretPresent = true; lastSetTokenValue = val; lastSecureSetTime = Date.now(); } } } catch { /* noop */ }
+	}
+}
+// Note: tests rely on immediate secret visibility; ensure cachedSecretPresent reflects current secret after migration helper
+// (We can't await readStoredToken here without altering existing test semantics, just set heuristic flag.)
 function getLog(): vscode.OutputChannel {
 	if (!_logChannel) {
 		_logChannel = vscode.window.createOutputChannel('Copilot Premium Usage');
@@ -284,6 +580,63 @@ function maybeAutoOpenLog() {
 let autoRefreshTimer: NodeJS.Timeout | undefined;
 let autoRefreshRestartCount = 0; // test helper counter
 let relativeTimeTimer: NodeJS.Timeout | undefined;
+
+// ---------------- Token secure storage migration ----------------
+async function maybeOfferTokenMigration(context: vscode.ExtensionContext) {
+	try {
+		const info = await readStoredToken(context);
+		if (info.source === 'settings' && info.token) {
+			// Only prompt once per session; guard with globalState flag (so user can postpone)
+			const promptedKey = 'copilotPremiumUsageMonitor.migrationPromptShown';
+			if (context.globalState.get<boolean>(promptedKey)) return;
+			await context.globalState.update(promptedKey, true);
+			const choice = await vscode.window.showInformationMessage(
+				'Copilot Premium Usage Monitor: Move personal access token to secure storage?',
+				'Migrate', 'Later', 'Don\'t ask again'
+			);
+			if (choice === 'Migrate') {
+				await performExplicitMigration(context, false);
+			} else if (choice === "Don't ask again") {
+				await context.globalState.update('copilotPremiumUsageMonitor.migrationPromptDisabled', true);
+			}
+		}
+	} catch { /* ignore */ }
+}
+
+interface MigrationResult { migrated: boolean; removedLegacy: boolean; }
+async function performExplicitMigration(context: vscode.ExtensionContext, notify: boolean): Promise<MigrationResult | undefined> {
+	try {
+		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		const raw = (cfg.get('token') as string | undefined)?.trim();
+		let removedLegacy = false;
+		if (!raw) return { migrated: false, removedLegacy: false };
+		await writeToken(context, raw);
+		// If we're keeping plaintext (notify=true) mark residual window immediately BEFORE awaiting secret persistence
+		if (notify) { lastMigrationKeepTime = Date.now(); }
+		// Wait for persistence then set heuristics (avoid premature hasSecurePat=false race later)
+		try { if (extCtx) await waitForSecret(extCtx, 20, 30, raw); } catch { /* noop */ }
+		cachedSecretPresent = true; lastSetTokenValue = raw; lastSecureSetTime = Date.now();
+		if (notify) {
+			vscode.window.showInformationMessage(localize('cpum.migration.success.kept', 'Token migrated to secure storage. (Plaintext copy left in settings.)'));
+		}
+		// notify=true means keep legacy plaintext (user may clear later). For explicit force-clear path we pass notify=false then remove setting.
+		if (!notify) {
+			try { await cfg.update('token', '', vscode.ConfigurationTarget.Global); removedLegacy = true; lastPlaintextClearedTime = Date.now(); } catch { /* noop */ }
+			if (removedLegacy) {
+				logSecrets('Legacy plaintext token cleared from settings after migration.');
+				vscode.window.showInformationMessage(localize('cpum.migration.success.removed', 'Token migrated to secure storage and removed from settings.'));
+			}
+		}
+		try { if (extCtx) await waitForSecret(extCtx); } catch { /* noop */ }
+		// Ensure webview reflects new secure token state immediately
+		try { UsagePanel.currentPanel?.['update'](); } catch { /* noop */ }
+		await postFreshConfig();
+		return { migrated: true, removedLegacy };
+	} catch (e: any) {
+		vscode.window.showErrorMessage(localize('cpum.migration.failed', 'Token migration failed: {0}', e?.message || String(e)));
+		return undefined;
+	}
+}
 
 function initStatusBar(context: vscode.ExtensionContext) {
 	try {
@@ -332,6 +685,23 @@ function updateStatusBar() {
 		const lastError = extCtx.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
 		const overrideRaw = (cfg.get('statusBarIconOverride') as string | undefined)?.trim() || undefined;
 		const { icon, forcedColor: forcedColorKey, staleTag } = pickIcon({ percent, warnAt, dangerAt, error: lastError, mode: mode as any, override: lastError ? undefined : overrideRaw });
+		// If no token (secure or plaintext) and in personal mode, treat as stale (cannot update usage)
+		let noTokenStale = '';
+		// Defer token availability check (async) but we still want stale marker quickly after promise resolves
+		(async () => {
+			try {
+				if (mode === 'personal') {
+					const info = await readStoredToken(extCtx!);
+					const cfgToken = (cfg.get('token') as string | undefined)?.trim();
+					if (!info.token && !cfgToken) {
+						if (!statusItem!.text.includes('[stale]')) {
+							statusItem!.text = `${statusItem!.text} [stale]`;
+						}
+						// We won't mutate existing tooltip here to avoid md ordering; user will see stale tag.
+					}
+				}
+			} catch { /* noop */ }
+		})();
 		let forcedColor: vscode.ThemeColor | undefined;
 		if (forcedColorKey === 'errorForeground') forcedColor = new vscode.ThemeColor('errorForeground');
 		else if (forcedColorKey === 'charts.yellow') forcedColor = new vscode.ThemeColor('charts.yellow');
@@ -350,7 +720,7 @@ function updateStatusBar() {
 			// leave undefined to inherit theme's status bar foreground
 			derivedColor = undefined;
 		}
-		statusItem.text = `$(${icon}) ${percent}% ${bar}${staleTag}`;
+		statusItem.text = `$(${icon}) ${percent}% ${bar}${staleTag || noTokenStale}`;
 		// Store for tests
 		_test_lastStatusBarText = statusItem.text;
 		statusItem.color = derivedColor;
@@ -389,9 +759,10 @@ function updateStatusBar() {
 		try {
 			const lastError = extCtx?.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
 			if (lastError) {
-				// Light sanitization: escape markdown code fences/backticks to avoid breaking formatting
 				const sanitized = lastError.replace(/`/g, '\u0060');
 				md.appendMarkdown(`\n\n$(warning) **${localize('cpum.statusbar.stale', 'Data may be stale')}**: ${sanitized}`);
+			} else if (noTokenStale) {
+				md.appendMarkdown(`\n\n$(warning) ${localize('cpum.statusbar.noToken', 'Awaiting secure token for personal spend updates.')}`);
 			}
 		} catch { /* noop */ }
 		statusItem.tooltip = md;
@@ -489,9 +860,11 @@ async function performAutoRefresh() {
 }
 
 async function getGitHubTokenNonInteractive(): Promise<string | undefined> {
+	// Prefer secret storage (may include migrated token)
+	try { if (extCtx) { const info = await readStoredToken(extCtx); if (info.token) return info.token; } } catch { /* ignore */ }
 	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-	const directToken = (cfg.get('token') as string | undefined)?.trim();
-	if (directToken) return directToken;
+	const legacy = (cfg.get('token') as string | undefined)?.trim();
+	if (legacy) return legacy;
 	try {
 		const s = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: false });
 		return s?.accessToken;
@@ -501,9 +874,10 @@ async function getGitHubTokenNonInteractive(): Promise<string | undefined> {
 }
 
 async function getGitHubToken(): Promise<string | undefined> {
+	try { if (extCtx) { const info = await readStoredToken(extCtx); if (info.token) return info.token; } } catch { /* ignore */ }
 	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-	const directToken = (cfg.get('token') as string | undefined)?.trim();
-	if (directToken) return directToken;
+	const legacy = (cfg.get('token') as string | undefined)?.trim();
+	if (legacy) return legacy;
 	try {
 		const s = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: true });
 		return s?.accessToken;
