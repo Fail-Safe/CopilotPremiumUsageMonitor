@@ -35,5 +35,9 @@
     "cpum.guard.migrateClear": "Migra e cancella",
     "cpum.guard.clearOnly": "Cancella testo in chiaro",
     "cpum.guard.ignore": "Ignora",
-    "cpum.guard.migrated": "Token migrato in archiviazione sicura e testo in chiaro eliminato."
+    "cpum.guard.migrated": "Token migrato in archiviazione sicura e testo in chiaro eliminato.",
+    "cpum.secureToken.indicator.title": "Token sicuro memorizzato nel Secret Storage di VS Code (crittografato dal tuo OS).",
+    "cpum.secureToken.indicator.text": "Token sicuro impostato",
+    "cpum.secureToken.indicator.titleResidual": "Token sicuro presente (copia in chiaro ancora nelle impostazioni – eliminala).",
+    "cpum.secureToken.indicator.textResidual": "Token sicuro + Testo in chiaro nelle impostazioni"
 }

@@ -35,5 +35,9 @@
     "cpum.guard.migrateClear": "移行してクリア",
     "cpum.guard.clearOnly": "平文をクリア",
     "cpum.guard.ignore": "無視",
-    "cpum.guard.migrated": "トークンを安全なストレージに移行し平文を削除しました。"
+    "cpum.guard.migrated": "トークンを安全なストレージに移行し平文を削除しました。",
+    "cpum.secureToken.indicator.title": "安全なトークンは VS Code Secret Storage に保存されています (OS により暗号化)。",
+    "cpum.secureToken.indicator.text": "安全なトークン設定済み",
+    "cpum.secureToken.indicator.titleResidual": "安全なトークンあり (設定に平文コピーが残っているため削除してください)。",
+    "cpum.secureToken.indicator.textResidual": "安全なトークン + 設定内の平文"
 }

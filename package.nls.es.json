@@ -35,5 +35,9 @@
     "cpum.guard.migrateClear": "Migrar y limpiar",
     "cpum.guard.clearOnly": "Limpiar texto plano",
     "cpum.guard.ignore": "Ignorar",
-    "cpum.guard.migrated": "Token migrado a almacenamiento seguro y texto plano limpiado."
+    "cpum.guard.migrated": "Token migrado a almacenamiento seguro y texto plano limpiado.",
+    "cpum.secureToken.indicator.title": "Token seguro almacenado en el Secret Storage de VS Code (cifrado por tu SO).",
+    "cpum.secureToken.indicator.text": "Token seguro establecido",
+    "cpum.secureToken.indicator.titleResidual": "Token seguro presente (copia en texto plano sigue en configuración – límpiala).",
+    "cpum.secureToken.indicator.textResidual": "Token seguro + Texto plano en configuración"
 }

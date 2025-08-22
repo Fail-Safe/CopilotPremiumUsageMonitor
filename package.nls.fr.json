@@ -35,5 +35,9 @@
     "cpum.guard.migrateClear": "Migrer et effacer",
     "cpum.guard.clearOnly": "Effacer le clair",
     "cpum.guard.ignore": "Ignorer",
-    "cpum.guard.migrated": "Jeton migré vers le stockage sécurisé et clair supprimé."
+    "cpum.guard.migrated": "Jeton migré vers le stockage sécurisé et clair supprimé.",
+    "cpum.secureToken.indicator.title": "Jeton sécurisé stocké dans le Secret Storage VS Code (chiffré par votre OS).",
+    "cpum.secureToken.indicator.text": "Jeton sécurisé défini",
+    "cpum.secureToken.indicator.titleResidual": "Jeton sécurisé présent (copie en clair encore dans les paramètres – supprimez-la).",
+    "cpum.secureToken.indicator.textResidual": "Jeton sécurisé + Clair dans paramètres"
 }

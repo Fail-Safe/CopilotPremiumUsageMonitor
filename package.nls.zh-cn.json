@@ -35,5 +35,9 @@
     "cpum.guard.migrateClear": "迁移并清除",
     "cpum.guard.clearOnly": "清除明文",
     "cpum.guard.ignore": "忽略",
-    "cpum.guard.migrated": "令牌已迁移到安全存储并清除明文。"
+    "cpum.guard.migrated": "令牌已迁移到安全存储并清除明文。",
+    "cpum.secureToken.indicator.title": "安全令牌存储在 VS Code Secret Storage 中（由操作系统加密）。",
+    "cpum.secureToken.indicator.text": "已设置安全令牌",
+    "cpum.secureToken.indicator.titleResidual": "安全令牌存在（设置中仍有明文副本 – 请清除）。",
+    "cpum.secureToken.indicator.textResidual": "安全令牌 + 设置中的明文"
 }

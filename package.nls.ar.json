@@ -35,5 +35,9 @@
     "cpum.guard.migrateClear": "انقل وامسح",
     "cpum.guard.clearOnly": "مسح النص الواضح",
     "cpum.guard.ignore": "تجاهل",
-    "cpum.guard.migrated": "تم نقل الرمز إلى التخزين الآمن ومسح النص الواضح."
+    "cpum.guard.migrated": "تم نقل الرمز إلى التخزين الآمن ومسح النص الواضح.",
+    "cpum.secureToken.indicator.title": "تم تخزين الرمز الآمن في VS Code Secret Storage (مشفر بواسطة نظامك).",
+    "cpum.secureToken.indicator.text": "تم تعيين الرمز الآمن",
+    "cpum.secureToken.indicator.titleResidual": "رمز آمن موجود (نسخة نص واضح ما زالت في الإعدادات – امسحها).",
+    "cpum.secureToken.indicator.textResidual": "رمز آمن + نص واضح في الإعدادات"
 }

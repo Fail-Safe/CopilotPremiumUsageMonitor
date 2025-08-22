@@ -35,5 +35,9 @@
     "cpum.guard.migrateClear": "Migrer og fjern",
     "cpum.guard.clearOnly": "Fjern klartekst",
     "cpum.guard.ignore": "Ignorer",
-    "cpum.guard.migrated": "Token migrert til sikker lagring og klartekst fjernet."
+    "cpum.guard.migrated": "Token migrert til sikker lagring og klartekst fjernet.",
+    "cpum.secureToken.indicator.title": "Sikkert token lagret i VS Code Secret Storage (kryptert av OS-et).",
+    "cpum.secureToken.indicator.text": "Sikkert token satt",
+    "cpum.secureToken.indicator.titleResidual": "Sikkert token finnes (klartekstkopi fortsatt i innstillinger – fjern den).",
+    "cpum.secureToken.indicator.textResidual": "Sikkert token + Klartekst i innstillinger"
 }

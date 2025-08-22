@@ -35,5 +35,9 @@
     "cpum.guard.migrateClear": "माइग्रेट करें और साफ़ करें",
     "cpum.guard.clearOnly": "प्लेनटेक्स्ट साफ़ करें",
     "cpum.guard.ignore": "नज़रअंदाज़ करें",
-    "cpum.guard.migrated": "टोकन सुरक्षित स्टोरेज में माइग्रेट हुआ और प्लेनटेक्स्ट साफ़ किया गया."
+    "cpum.guard.migrated": "टोकन सुरक्षित स्टोरेज में माइग्रेट हुआ और प्लेनटेक्स्ट साफ़ किया गया.",
+    "cpum.secureToken.indicator.title": "सुरक्षित टोकन VS Code Secret Storage में संग्रहीत (आपके OS द्वारा एन्क्रिप्टेड)।",
+    "cpum.secureToken.indicator.text": "सुरक्षित टोकन सेट",
+    "cpum.secureToken.indicator.titleResidual": "सुरक्षित टोकन मौजूद (सेटिंग्स में प्लेनटेक्स्ट प्रति अभी भी है – हटाएँ)।",
+    "cpum.secureToken.indicator.textResidual": "सुरक्षित टोकन + सेटिंग्स में प्लेनटेक्स्ट"
 }

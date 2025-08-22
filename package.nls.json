@@ -35,5 +35,11 @@
     "cpum.guard.migrateClear": "Migrate & Clear",
     "cpum.guard.clearOnly": "Clear Plaintext",
     "cpum.guard.ignore": "Ignore",
-    "cpum.guard.migrated": "Token migrated to secure storage and plaintext cleared."
+    "cpum.guard.migrated": "Token migrated to secure storage and plaintext cleared.",
+    "cpum.secureToken.indicator.title": "Secure token stored in VS Code Secret Storage (encrypted by your OS).",
+    "cpum.secureToken.indicator.text": "Secure token set",
+    "cpum.secureToken.indicator.titleResidual": "Secure token present (plaintext copy still in settings – clear it).",
+    "cpum.secureToken.indicator.textResidual": "Secure token + Plaintext in settings",
+    "cpum.statusbar.noToken": "Awaiting secure token for personal spend updates.",
+    "cpum.webview.noTokenStale": "Awaiting secure token for personal spend updates."
 }
