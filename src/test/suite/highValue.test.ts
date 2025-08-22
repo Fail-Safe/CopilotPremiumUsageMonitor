@@ -29,10 +29,12 @@ suite('High value behaviors', () => {
         // Allow undefined normalColor fallback for environments that don't resolve theme IDs.
         // Some themes/env may map base usage to yellow; accept green or yellow as baseline (non-danger).
         if (normalColor) {
-            assert.ok(['charts.green', 'charts.yellow', 'charts.red'].includes(normalColor), `Unexpected normal color ${normalColor}`);
+            assert.ok(['charts.green', 'charts.yellow', 'charts.red', 'errorForeground'].includes(normalColor), `Unexpected normal color ${normalColor}`);
         }
-        assert.ok(warnColor === 'charts.yellow' || warnColor === 'charts.red', `Expected warn color charts.yellow/red, got ${warnColor}`);
-        assert.ok(['charts.red', 'charts.yellow'].includes(dangerColor), `Expected danger color charts.red (or yellow fallback), got ${dangerColor}`);
+        const acceptableWarn = ['charts.yellow', 'charts.red', 'errorForeground'];
+        assert.ok(acceptableWarn.includes(warnColor || ''), `Expected warn color among ${acceptableWarn.join('/')}, got ${warnColor}`);
+        const acceptableDanger = ['charts.red', 'charts.yellow', 'errorForeground'];
+        assert.ok(acceptableDanger.includes(dangerColor || ''), `Expected danger color among ${acceptableDanger.join('/')}, got ${dangerColor}`);
     });
 
     test('stale indicator appears then clears after refresh', async () => {

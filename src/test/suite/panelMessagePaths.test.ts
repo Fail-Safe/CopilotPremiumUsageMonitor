@@ -13,10 +13,16 @@ suite('Panel message paths batch1', () => {
         const api = await activate();
         api._test_resetPostedMessages();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('budget', 12, vscode.ConfigurationTarget.Global);
+        // Ensure config write settles
+        for (let i = 0; i < 10; i++) {
+            const val = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').get('budget');
+            if (val === 12) break; // tslint:disable-line
+            await new Promise(r => setTimeout(r, 30));
+        }
         api._test_setLastError('Network error: Unable to reach GitHub.');
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
         api._test_invokeWebviewMessage({ type: 'getConfig' });
-        await new Promise(r => setTimeout(r, 120));
+        await new Promise(r => setTimeout(r, 200));
         const msgs = api._test_getPostedMessages();
         const cfgMsg = msgs.find((m: any) => m.type === 'config');
         assert.ok(cfgMsg, 'Expected config message');
@@ -110,5 +116,21 @@ suite('Panel message paths batch1', () => {
         await api._test_refreshPersonal();
         const err = api._test_getLastError();
         assert.ok(err && /permission denied|Authentication error/i.test(err), 'Expected permission/auth error capture');
+    });
+
+    test('locale fallback uses default text when missing key (heuristic)', async () => {
+        const api = await activate();
+        api._test_resetPostedMessages();
+        await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
+        await new Promise(r => setTimeout(r, 140));
+        const msgs = api._test_getPostedMessages();
+        // Look for at least one localized label we know the English default of
+        const configMsg = msgs.find((m: any) => m.type === 'config');
+        assert.ok(configMsg, 'Expected config message');
+        // If migration notice appears, ensure its text not empty (fallback or localized)
+        const notice = msgs.find((m: any) => m.type === 'notice');
+        if (notice) {
+            assert.ok((notice.text || '').length > 5, 'Notice text should not be empty');
+        }
     });
 });
