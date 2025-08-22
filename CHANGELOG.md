@@ -12,6 +12,10 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 <!-- Placeholder for upcoming release notes. Add new sections (Added/Changed/Fixed/etc.) here. -->
 ### Changed
 - Changelog housekeeping: deduplicated 0.4.3 duplicate entries and reset Unreleased placeholder.
+### Added
+- Secure token indicator now always visible when a secret exists (green) and shows a warning variant if a residual plaintext token remains.
+- Localization keys for secure token indicator (`cpum.secureToken.indicator.*`).
+- README section documenting dual-state secure token indicator and remediation guidance.
 
 ## [0.4.7] - 2025-08-13
 ### Planned / Proposed

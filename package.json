@@ -64,6 +64,18 @@
       {
         "command": "copilotPremiumUsageMonitor.showLogs",
         "title": "Copilot Premium Usage Monitor: Show Logs"
+      },
+      {
+        "command": "copilotPremiumUsageMonitor.migrateToken",
+        "title": "Copilot Premium Usage Monitor: Migrate Token to Secure Storage"
+      },
+      {
+        "command": "copilotPremiumUsageMonitor.setTokenSecure",
+        "title": "Copilot Premium Usage Monitor: Set / Update Token (Secure)"
+      },
+      {
+        "command": "copilotPremiumUsageMonitor.clearTokenSecure",
+        "title": "Copilot Premium Usage Monitor: Clear Stored Token"
       }
     ],
     "configuration": {
@@ -115,6 +127,7 @@
           "type": "string",
           "default": "",
           "markdownDescription": "GitHub Personal Access Token (classic or fine-grained) with `Plan: read-only` scope. Leave blank to sign in via the GitHub Authentication extension.",
+          "deprecationMessage": "Deprecated: Token is now stored in VS Code secret storage after migration. Use the command 'Copilot Premium Usage Monitor: Migrate Token to Secure Storage'.",
           "scope": "machine-overridable"
         },
         "copilotPremiumUsageMonitor.disableFirstRunTips": {
