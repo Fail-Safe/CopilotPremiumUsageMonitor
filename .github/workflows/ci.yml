@@ -2,6 +2,7 @@ name: CI
 
 permissions:
   contents: write
+  pull-requests: write
 
 on:
   push:
@@ -15,20 +16,61 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Pinned VS Code version (bump workflow updates this line)
+env:
+  VSCODE_VERSION: 1.103.2
+
 jobs:
-  build-test:
-    name: Lint & Test (Node ${{ matrix.node }})
+  determine-versions:
+    name: Determine VS Code versions matrix
     runs-on: ubuntu-latest
-    env:
-      # Pin VS Code version used by @vscode/test-electron (update as needed)
-      VSCODE_VERSION: 1.103.2
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [20.x]
+    outputs:
+      versions: ${{ steps.set.outputs.versions }}
+      current: ${{ steps.set.outputs.current }}
+      previous: ${{ steps.set.outputs.previous }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Extract current & previous versions
+        id: set
+        run: |
+          set -e
+          CURRENT=$(grep -E 'VSCODE_VERSION:' .github/workflows/ci.yml | head -n1 | sed -E 's/.*VSCODE_VERSION:\s*([0-9.]+).*/\1/')
+          PREV=""
+          if [ "${{ github.event_name }}" = "pull_request" ] && [[ "${{ github.head_ref }}" == chore/bump-vscode-* ]]; then
+            BASE_REF='${{ github.base_ref }}'
+            git fetch origin "$BASE_REF" --depth=1 || true
+            PREV=$(git show origin/$BASE_REF:.github/workflows/ci.yml 2>/dev/null | grep -E 'VSCODE_VERSION:' | head -n1 | sed -E 's/.*VSCODE_VERSION:\s*([0-9.]+).*/\1/' || true)
+            if [ "$PREV" = "$CURRENT" ]; then PREV=""; fi
+          fi
+          if [ -n "$PREV" ]; then
+            echo "Bump PR detected: previous=$PREV current=$CURRENT"
+            VERSIONS_JSON="[\"$PREV\",\"$CURRENT\"]"
+          else
+            VERSIONS_JSON="[\"$CURRENT\"]"
+          fi
+          echo "versions=$VERSIONS_JSON" >> $GITHUB_OUTPUT
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          echo "previous=$PREV" >> $GITHUB_OUTPUT
+          echo "Matrix versions: $VERSIONS_JSON"
+
+  build-test:
+    name: Lint & Test (Node ${{ matrix.node }}, VS Code ${{ matrix.vscode }})
+    runs-on: ubuntu-latest
+    needs: determine-versions
+    env:
+      PINNED_VERSION: ${{ needs.determine-versions.outputs.current }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(format('{"node":["20.x"],"vscode":{0}}', needs.determine-versions.outputs.versions)) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set VS Code version env
+        run: echo "VSCODE_VERSION=${{ matrix.vscode }}" >> $GITHUB_ENV
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -62,7 +104,6 @@ jobs:
             tsc-${{ runner.os }}-${{ matrix.node }}-
 
       - name: Cache VS Code Test Download
-        id: vscache
         uses: actions/cache@v4
         with:
           path: .vscode-test
@@ -74,19 +115,17 @@ jobs:
             vscode-test-${{ runner.os }}-
 
       - name: Activation tests (VS Code integration)
-        # VS Code tests need a virtual display; xvfb-run provides that
         run: xvfb-run -a npm run test:activation
         env:
           CI: true
 
       - name: Full coverage (unit + integration) & badge
-        # Generates merged lcov and writes coverage/coverage-badge.json
         run: xvfb-run -a npm run test:coverage:full
         env:
           CI: true
 
-      - name: Commit coverage badge
-        if: github.ref == 'refs/heads/main'
+      - name: Commit coverage badge (only once on pinned matrix)
+        if: github.ref == 'refs/heads/main' && matrix.vscode == env.PINNED_VERSION
         run: |
           if git diff --quiet --exit-code coverage/coverage-badge.json 2>/dev/null; then
             echo "No coverage badge changes to commit.";
@@ -102,7 +141,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-${{ matrix.node }}
+          name: coverage-${{ matrix.node }}-${{ matrix.vscode }}
           path: coverage/lcov.info
           if-no-files-found: warn
 
@@ -110,13 +149,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: logs-${{ matrix.node }}
+          name: logs-${{ matrix.node }}-${{ matrix.vscode }}
           path: |
             *.log
             *.txt
           if-no-files-found: ignore
 
       - name: Upload build artifact
+        if: matrix.vscode == env.PINNED_VERSION
         uses: actions/upload-artifact@v4
         with:
           name: build-out
@@ -124,13 +164,25 @@ jobs:
             out/**
             .tsbuildinfo
 
+  auto-merge-bump:
+    name: Auto-merge bump PR (if labeled & all matrices pass)
+    needs: [build-test]
+    if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'chore/bump-vscode-') && contains(toJson(github.event.pull_request.labels), 'auto-merge')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable PR auto-merge
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          pull-request-number: ${{ github.event.pull_request.number }}
+          merge-method: squash
+
   package:
     name: Package VSIX
-    needs: build-test
+    needs: [build-test, determine-versions]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     env:
-      VSCODE_VERSION: 1.103.2
+      VSCODE_VERSION: ${{ needs.determine-versions.outputs.current }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5

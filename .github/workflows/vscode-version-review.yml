@@ -89,6 +89,7 @@ jobs:
             Actions:
             - Verify integration tests & coverage.
             - Watch for new API / behavior changes.
+          # Auto-merge requires a manual 'auto-merge' label addition to the PR
           labels: maintenance,dependencies
           signoff: false
           delete-branch: true
