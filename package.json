@@ -210,14 +210,5 @@
     "@octokit/rest": "^22.0.0",
     "vscode-nls": "^5.2.0"
   },
-  "files": [
-    "out/extension.js",
-    "media",
-    "README.md",
-    "LICENSE",
-    "SECURITY.md",
-    "package.nls.json",
-    "package.nls.*.json"
-  ],
   "nyc": {}
 }
