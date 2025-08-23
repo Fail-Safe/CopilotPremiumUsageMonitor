@@ -1173,6 +1173,7 @@ export async function _test_refreshOrg() {
 	} catch (e: any) {
 		let msg = 'Failed to sync org metrics.'; if (e?.status === 404) msg = 'Org metrics endpoint returned 404.'; else if (e?.message?.includes('401') || e?.message?.includes('403')) msg = 'Authentication error: Please sign in or provide a valid PAT.'; else if (e?.message?.toLowerCase()?.includes('network')) msg = 'Network error: Unable to reach GitHub.'; else if (e?.message) msg = `Failed to sync org metrics: ${e.message}`;
 		await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg);
+		try { await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', Date.now()); } catch { /* noop */ }
 		updateStatusBar();
 	}
 }

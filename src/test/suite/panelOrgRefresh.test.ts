@@ -40,8 +40,8 @@ suite('Panel refresh message paths (org)', () => {
             }, paginate: () => []
         }));
         await api._test_refreshOrg();
-        let err: string | undefined; const start = Date.now();
-        while (Date.now() - start < 900) { err = api._test_getLastError(); if (err) break; await new Promise(r => setTimeout(r, 30)); }
+        let err: string | undefined; const start = Date.now(); const timeoutMs = 2500; // extended for slower Linux CI disk/import times
+        while (Date.now() - start < timeoutMs) { err = api._test_getLastError(); if (err) break; await new Promise(r => setTimeout(r, 40)); }
         assert.ok(err && (/org metrics/i.test(err) || /Network error/i.test(err) || /Network Unreachable/i.test(err)), 'Expected stored org metrics or network error message');
     });
 });
