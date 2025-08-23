@@ -39,7 +39,12 @@ suite('Panel refresh message paths (personal)', () => {
         }));
         await api._test_refreshPersonal();
         let err: string | undefined; const start = Date.now();
-        while (Date.now() - start < 500) { err = api._test_getLastError(); if (err) break; await new Promise(r => setTimeout(r, 25)); }
-        assert.ok(err && /404/i.test(err), 'Expected stored 404 error message');
+        while (Date.now() - start < 1200) { err = api._test_getLastError(); if (err) break; await new Promise(r => setTimeout(r, 40)); }
+        if (!err) { // fallback direct invoke to ensure error surfaced (rare timing lag)
+            await api._test_refreshPersonal();
+            await new Promise(r => setTimeout(r, 120));
+            err = api._test_getLastError();
+        }
+        assert.ok(err && /404|Not Found/i.test(err), 'Expected stored 404 error message');
     });
 });

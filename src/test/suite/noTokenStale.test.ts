@@ -21,7 +21,14 @@ suite('No token stale state', () => {
         await api._test_clearSecretToken?.();
         // Force status bar update
         api._test_forceStatusBarUpdate?.();
-        const text = api._test_getStatusBarText?.() || '';
+        // Poll because stale tag is added asynchronously after token presence check
+        let text = api._test_getStatusBarText?.() || '';
+        const start = Date.now();
+        while (!/\[stale\]/i.test(text) && Date.now() - start < 1200) {
+            await new Promise(r => setTimeout(r, 60));
+            api._test_forceStatusBarUpdate?.();
+            text = api._test_getStatusBarText?.() || '';
+        }
         assert.ok(/\[stale\]/i.test(text), `Expected status bar to include [stale] when no token present, got: ${text}`);
     });
 });
