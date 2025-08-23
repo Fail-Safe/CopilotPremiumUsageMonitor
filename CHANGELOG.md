@@ -11,6 +11,25 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 
 <!-- Placeholder for upcoming release notes. Add new sections (Added/Changed/Fixed/etc.) here. -->
 
+## [0.5.1] - 2025-08-22
+### Changed
+- Bundled extension with esbuild and introduced `.vscodeignore` trimming VSIX to single bundled `extension.js` plus assets (significant size reduction).
+- Separated dev build (`build:dev`) from bundled packaging pipeline (`build:bundle`) to keep test artifacts intact.
+
+### Fixed
+- Flaky first-run notice test by avoiding clearing the one-time notice message after panel creation (moved reset earlier + polling).
+- Race in config budget assertion (now polls for updated value ensuring post-write consistency).
+- Secure token indicator timing race: extended polling for `securePatOnly` true after migration/clear latency windows.
+- Intermittent org refresh tests (added pre-clear + longer polling windows for error clear / network error capture).
+
+### Internal
+- Added polling-based stabilization across integration tests (budget, secure token indicator, org refresh, first-run dismissal).
+- Improved post-migration secret + legacy interplay logic test coverage without altering runtime behavior.
+- Minor test timing adjustments (poll loops replacing fixed sleeps) to reduce future flakes.
+
+### Package
+- Ready for Marketplace publish following prior v0.5.0 tag; patch release captures post-tag hardening & packaging optimization.
+
 ## [0.5.0] - 2025-08-22
 ### Added
 - Secure token indicator (pill) with dual states: green (secure only) and warning (secure + residual plaintext).
