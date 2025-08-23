@@ -153,7 +153,7 @@ class UsagePanel {
 								}
 							} catch { /* noop */ }
 						})();
-					} catch (e) {
+					} catch {
 						// Guaranteed fallback config so tests relying on config message never fail silently
 						this.post({ type: 'config', config: { budget: 0, org: undefined, mode: 'auto', warnAtPercent: DEFAULT_WARN_AT_PERCENT, dangerAtPercent: DEFAULT_DANGER_AT_PERCENT, hasPat: false, hasSession: false }, error: true });
 						noop();
@@ -161,8 +161,8 @@ class UsagePanel {
 					break;
 				}
 				case 'openSettings': { await vscode.commands.executeCommand('workbench.action.openSettings', 'copilotPremiumUsageMonitor'); break; }
-				case 'help': { _test_helpCount++; _test_lastHelpInvoked = Date.now(); const readme = vscode.Uri.joinPath(this.extensionUri, 'README.md'); try { await vscode.commands.executeCommand('markdown.showPreview', readme); } catch (e) { try { await vscode.window.showTextDocument(readme); } catch (e2) { noop(); } } break; }
-				case 'dismissFirstRun': { await this.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', true); try { await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', true, vscode.ConfigurationTarget.Global); } catch (e) { noop(); } break; }
+				case 'help': { _test_helpCount++; _test_lastHelpInvoked = Date.now(); const readme = vscode.Uri.joinPath(this.extensionUri, 'README.md'); try { await vscode.commands.executeCommand('markdown.showPreview', readme); } catch { try { await vscode.window.showTextDocument(readme); } catch { noop(); } } break; }
+				case 'dismissFirstRun': { await this.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', true); try { await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', true, vscode.ConfigurationTarget.Global); } catch { noop(); } break; }
 				case 'migrateToken': {
 					const result = await performExplicitMigration(extCtx!, true);
 					if (result?.migrated) {
@@ -201,9 +201,9 @@ class UsagePanel {
 						try {
 							if (!org) { break; }
 							const metrics = await fetchOrgCopilotMetrics(org, token, {});
-							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch (e) { noop(); }
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { noop(); }
 							// Also clear any lingering error indicator by posting clearError
-							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch (e) { noop(); }
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { noop(); }
 							this.post({ type: 'metrics', metrics });
 							this.post({ type: 'clearError' });
 							updateStatusBar();
@@ -229,8 +229,8 @@ class UsagePanel {
 						try {
 							const octokit = await getOctokit(token); const me = await octokit.request('GET /user'); const login = me.data?.login as string | undefined; if (!login) throw new Error('Cannot determine authenticated username.');
 							const now = new Date(); const year = now.getUTCFullYear(); const month = now.getUTCMonth() + 1; const billing = await fetchUserBillingUsage(login, token, { year, month });
-							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch (e) { noop(); }
-							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch (e) { noop(); }
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { noop(); }
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { noop(); }
 							await this.setSpend(billing.totalNetAmount);
 							this.post({ type: 'billing', billing });
 							this.post({ type: 'clearError' });
@@ -262,7 +262,7 @@ class UsagePanel {
 		this.update();
 		void this.maybeShowFirstRunNotice();
 	}
-	dispose() { UsagePanel.currentPanel = undefined; try { this.panel.dispose(); } catch (e) { noop(); } while (this.disposables.length) { try { this.disposables.pop()?.dispose(); } catch (e2) { noop(); } } }
+	dispose() { UsagePanel.currentPanel = undefined; try { this.panel.dispose(); } catch { noop(); } while (this.disposables.length) { try { this.disposables.pop()?.dispose(); } catch { noop(); } } }
 	private post(data: any) {
 		if (data && typeof data === 'object') { try { _test_postedMessages.push(data); } catch { /* noop */ } }
 		if (data.type === 'config') {

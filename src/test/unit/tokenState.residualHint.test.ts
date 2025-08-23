@@ -5,8 +5,7 @@ import { describe, it } from 'node:test';
 
 // Provide a minimal vscode stub to satisfy tokenState's import (only needs workspace & ExtensionContext types at runtime = noop)
 (global as any).vscode = {}; // tokenState only uses vscode for wait helper we don't call here
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { deriveTokenState, recordMigrationKeep, resetAllTokenStateWindows } = require('../../lib/tokenState');
+import { deriveTokenState, recordMigrationKeep, resetAllTokenStateWindows } from '../../lib/tokenState';
 
 // These are pure unit tests validating timing retention behavior that backs the pending residual hint window.
 // We focus on legacyRetainUntil effect (triggered by recordMigrationKeep) which ensures residualPlaintext classification
