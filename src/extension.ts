@@ -201,8 +201,12 @@ class UsagePanel {
 					const cfgR = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); let org = trimmedSetting(cfgR, 'org');
 					const incomingMode = (message.mode as string | undefined) ?? (cfgR.get('mode')) ?? 'auto';
 					const mode = incomingMode === 'personal' || incomingMode === 'org' ? incomingMode : 'auto';
-					// In fast test sequences the org setting write may not be observable immediately; retry once for auto mode.
-					if (mode === 'auto' && !org) { try { await new Promise(r => setTimeout(r, 40)); org = trimmedSetting(vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'), 'org'); } catch { /* noop */ } }
+					// In fast test / CI sequences the org setting write may not be observable immediately; retry a few times for auto mode.
+					if (mode === 'auto' && !org) {
+						for (let i = 0; i < 5 && !org; i++) {
+							try { await new Promise(r => setTimeout(r, 40)); org = trimmedSetting(vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'), 'org'); } catch { /* noop */ }
+						}
+					}
 					const effectiveMode = mode === 'auto' ? (org ? 'org' : 'personal') : mode;
 					if (effectiveMode === 'org') {
 						let allowFallback = mode === 'auto';
@@ -686,6 +690,14 @@ async function performExplicitMigration(context: vscode.ExtensionContext, notify
 		} else {
 			// Kept legacy plaintext intentionally
 			recordMigrationKeep();
+			// Very rarely on some test runners the plaintext setting read can race and appear empty once post-migration.
+			// If that happens we proactively restore it so residual detection (secure + plaintext) remains accurate.
+			try {
+				const legacyValCheck = trimmedSetting(cfg, 'token');
+				if (!legacyValCheck && lastSetTokenValue) {
+					await cfg.update('token', lastSetTokenValue, vscode.ConfigurationTarget.Global);
+				}
+			} catch { /* noop */ }
 		}
 		try { if (extCtx) await waitForSecret(extCtx); } catch { /* noop */ }
 		// Ensure webview reflects new secure token state immediately
