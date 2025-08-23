@@ -33,7 +33,7 @@ test('no-token activation hint appears after opening panel (mode=personal)', asy
     await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
     // request config to trigger hint post
     api._test_invokeWebviewMessage?.({ type: 'getConfig' });
-    let hint: any | undefined; let attempts = 6;
+    let hint: any | undefined; const attempts = 6;
     for (let i = 0; i < attempts; i++) {
         await new Promise(r => setTimeout(r, 120));
         const msgs = api._test_getPostedMessages?.() || [];
