@@ -14,6 +14,8 @@ suite('Panel refresh message paths (org)', () => {
         api._test_clearLastError?.();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'ORG_TOKEN', vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', 'my-org', vscode.ConfigurationTarget.Global);
+    // Wait for setting propagation (org + token) to become observable to getGitHubToken/_test_refreshOrg
+    for (let i = 0; i < 20; i++) { const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const t = cfg.get('token'); const o = cfg.get('org'); if (t === 'ORG_TOKEN' && o === 'my-org') break; await new Promise(r => setTimeout(r, 40)); }
         api._test_setOctokitFactory(() => ({
             request: (route: string) => {
                 if (route === 'GET /orgs/{org}/copilot/metrics') return { data: [] };
@@ -32,6 +34,8 @@ suite('Panel refresh message paths (org)', () => {
         api._test_clearLastError?.();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'ORG_TOKEN2', vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', 'my-org', vscode.ConfigurationTarget.Global);
+    // Wait for setting propagation (org + token) to become observable
+    for (let i = 0; i < 20; i++) { const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const t = cfg.get('token'); const o = cfg.get('org'); if (t === 'ORG_TOKEN2' && o === 'my-org') break; await new Promise(r => setTimeout(r, 40)); }
         api._test_setOctokitFactory(() => ({
             request: (route: string) => {
                 if (route === 'GET /orgs/{org}/copilot/metrics') { const err: any = new Error('Network Unreachable'); err.message = 'Network Unreachable'; throw err; }
