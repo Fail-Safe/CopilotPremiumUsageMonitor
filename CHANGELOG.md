@@ -9,7 +9,27 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 - Optional command to force refresh ignoring cache.
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
-<!-- Placeholder for upcoming release notes. Add new sections (Added/Changed/Fixed/etc.) here. -->
+<!-- Placeholder for upcoming release notes. -->
+
+## [0.6.0] - 2025-08-23
+### Added
+- Separate "Last attempt" timestamp (with gating) alongside last successful sync in status bar tooltip.
+- Error classification with contextual icons (network/auth/not found/token/generic) appended to "Last attempt" line.
+- Internal test helper `_test_getAttemptMeta` including classification metadata for deterministic tests.
+
+### Changed
+- Tooltip formatting: conditional dual-line display (successful sync + gated attempt) with timezone & relative age refresh improvements.
+- Status bar markdown capture refactored to deterministic accumulator (stabilizes tooltip-related tests).
+- Gating logic broadened: attempt shown after 2 missed intervals since last success or if attempt itself is stale (>=1 interval old) or if no success yet.
+
+### Fixed
+- Flaky attempt visibility & classification tests (moved from regex tooltip scraping to internal meta assertions).
+- Potential races in setting / clearing last sync error causing stale color retention.
+- Minor timing instability in stale tag clearing and threshold color tests (awaited async helpers).
+
+### Internal
+- Converted test helpers `_test_setLastError` / `_test_clearLastError` to async to eliminate update races.
+- Added classification text to attempt meta for direct assertion (reduces reliance on tooltip rendering order).
 
 ## [0.5.1] - 2025-08-22
 ### Changed
