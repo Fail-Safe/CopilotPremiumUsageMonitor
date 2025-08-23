@@ -11,6 +11,10 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 
 <!-- Placeholder for upcoming release notes. -->
 
+## [0.6.1] - 2025-08-23
+### Fixed
+- Restored Changelog tab in Marketplace by re-including `CHANGELOG.md` in packaged VSIX (removed exclusion from `.vscodeignore`). No runtime code changes.
+
 ## [0.6.0] - 2025-08-23
 ### Added
 - Separate "Last attempt" timestamp (with gating) alongside last successful sync in status bar tooltip.
