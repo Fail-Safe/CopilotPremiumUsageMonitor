@@ -43,22 +43,40 @@ body {
 #app {
     max-width: 640px;
     width: 100%;
-    margin: 0 auto; /* center block itself */
+    margin: 0 auto;
+    /* center block itself */
     display: flex;
     flex-direction: column;
-    align-items: stretch; /* children span full width */
+    align-items: stretch;
+    /* children span full width */
 }
 
 /* Center only the main heading */
-#app h2 { text-align: center; }
+#app h2 {
+    text-align: center;
+}
 
 /* Ensure meter spans full content width */
-.meter { width: 100%; }
+.meter {
+    width: 100%;
+}
 
 /* Control rows span full width with left/right grouping */
-.controls-row { display: flex; width: 100%; }
-.btn-group { justify-content: flex-start; }
-.right-group { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.controls-row {
+    display: flex;
+    width: 100%;
+}
+
+.btn-group {
+    justify-content: flex-start;
+}
+
+.right-group {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
 
 h2 {
     margin-top: 0;
