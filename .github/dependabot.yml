@@ -48,7 +48,6 @@ updates:
       time: "04:30"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 5
-
 # Optional future ideas:
 # - Add separate daily security-only run with `interval: daily` and `security-updates-only: true`.
 # - Introduce labels or reviewers here if desired.
