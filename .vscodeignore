@@ -1,13 +1,37 @@
-# Exclude dev/test artifacts
-**/*.ts
-!out/**/*.js
-node_modules/.bin
-node_modules/@types
-**/*.map
-.vscode/
-.github/
-.eslintrc.json
-resources/
+### Lean VSIX: ship only bundled JS, media, key docs & localization
+
+# Sources & build/test artifacts
+src/**
+scripts/**
+coverage/**
+.nyc_output/**
+.node_coverage/**
+**/*.test.*
+.eslintcache
+.tsbuildinfo
 tsconfig.json
 package-lock.json
-media/*.svg
+
+# Node dev content (bundle inlines runtime deps; external only 'vscode')
+node_modules/**
+
+# Repo / workspace metadata
+.github/**
+.vscode/**
+.gitignore
+*.vsix
+
+# Keep only the single bundled file in out/
+out/**
+!out/extension.js
+
+# Docs to include
+!README.md
+!LICENSE
+!SECURITY.md
+
+# Exclude changelog from VSIX (viewable on Marketplace)
+CHANGELOG.md
+
+# Exclude all source maps (can re-enable for debugging)
+**/*.map

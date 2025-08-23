@@ -167,24 +167,26 @@
     "onStartupFinished"
   ],
   "scripts": {
-    "vscode:prepublish": "tsc -p ./",
+    "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/extension.js --minify",
+    "clean:full": "bash scripts/clean-artifacts.sh && git clean -fdX || true",
+    "clean": "bash scripts/clean-artifacts.sh",
     "compile": "tsc -watch -p ./",
     "lint": "eslint src --ext .ts --cache --cache-location .eslintcache",
-    "test": "npm run vscode:prepublish && node --test --test-reporter=spec out/test/unit/**/*.test.js && node ./out/test/runTests.js",
-    "test:activation": "npm run vscode:prepublish && nyc --reporter=text --reporter=lcov node ./out/test/runTests.js",
-    "pretest:coverage": "npm run vscode:prepublish",
-    "test:unit": "node --test --test-reporter=spec out/test/unit/**/*.test.js",
-    "test:coverage": "rimraf .nyc_output coverage && c8 --reporter=text --reporter=lcov node --test out/test/unit/**/*.test.js && node scripts/coverage-badge.mjs",
-    "test:coverage:full": "rimraf .node_coverage coverage out-instrumented && npm run vscode:prepublish && cp out/extension.js out/extension.js.bak && npx nyc instrument out out-instrumented && cp out-instrumented/extension.js out/extension.js && CPUM_COVERAGE_DIR=.node_coverage c8 --reporter=text --reporter=lcov node --test out/test/unit/**/*.test.js && CPUM_COVERAGE_DIR=.node_coverage node ./out/test/runTests.js; RC=$?; mv out/extension.js.bak out/extension.js; rimraf out-instrumented; if [ $RC -ne 0 ]; then exit $RC; fi; c8 report --reporter=text --reporter=lcov --coverage-dir .node_coverage && node scripts/merge-extension-coverage.mjs .node_coverage && node scripts/coverage-badge.mjs",
-    "clean": "bash scripts/clean-artifacts.sh",
-    "prepublishOnly": "npm run clean && npm run vscode:prepublish",
-    "preversion": "npm run clean",
-    "prepack": "npm run clean && npm run vscode:prepublish",
-    "postversion": "git push --follow-tags",
-    "clean:full": "bash scripts/clean-artifacts.sh && git clean -fdX || true",
-    "vsce": "npx @vscode/vsce",
     "package": "npx @vscode/vsce package",
-    "release": "npm run vscode:prepublish && npx @vscode/vsce publish"
+    "postbundle": "find out -type f ! -name extension.js -delete",
+    "postversion": "git push --follow-tags",
+    "prepack": "npm run clean && npm run vscode:prepublish",
+    "prepublishOnly": "npm run clean && npm run vscode:prepublish",
+    "pretest:coverage": "npm run vscode:prepublish",
+    "preversion": "npm run clean",
+    "release": "npm run vscode:prepublish && npx @vscode/vsce publish",
+    "test:activation": "npm run vscode:prepublish && nyc --reporter=text --reporter=lcov node ./out/test/runTests.js",
+    "test:coverage:full": "rimraf .node_coverage coverage out-instrumented && npm run vscode:prepublish && cp out/extension.js out/extension.js.bak && npx nyc instrument out out-instrumented && cp out-instrumented/extension.js out/extension.js && CPUM_COVERAGE_DIR=.node_coverage c8 --reporter=text --reporter=lcov node --test out/test/unit/**/*.test.js && CPUM_COVERAGE_DIR=.node_coverage node ./out/test/runTests.js; RC=$?; mv out/extension.js.bak out/extension.js; rimraf out-instrumented; if [ $RC -ne 0 ]; then exit $RC; fi; c8 report --reporter=text --reporter=lcov --coverage-dir .node_coverage && node scripts/merge-extension-coverage.mjs .node_coverage && node scripts/coverage-badge.mjs",
+    "test:coverage": "rimraf .nyc_output coverage && c8 --reporter=text --reporter=lcov node --test out/test/unit/**/*.test.js && node scripts/coverage-badge.mjs",
+    "test:unit": "node --test --test-reporter=spec out/test/unit/**/*.test.js",
+    "test": "npm run vscode:prepublish && node --test --test-reporter=spec out/test/unit/**/*.test.js && node ./out/test/runTests.js",
+    "vsce": "npx @vscode/vsce",
+    "vscode:prepublish": "tsc -p ./ && npm run bundle && npm run postbundle"
   },
   "devDependencies": {
     "@types/glob": "^8.1.0",
@@ -194,7 +196,7 @@
     "@typescript-eslint/eslint-plugin": "^7.8.0",
     "@typescript-eslint/parser": "^7.8.0",
     "@vscode/test-electron": "^2.3.9",
-    "@vscode/vsce": "^2.24.0",
+    "@vscode/vsce": "^3.6.0",
     "c8": "^10.1.3",
     "esbuild": "^0.25.8",
     "eslint": "^8.57.0",
@@ -208,5 +210,14 @@
     "@octokit/rest": "^22.0.0",
     "vscode-nls": "^5.2.0"
   },
+  "files": [
+    "out/extension.js",
+    "media",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "package.nls.json",
+    "package.nls.*.json"
+  ],
   "nyc": {}
 }
