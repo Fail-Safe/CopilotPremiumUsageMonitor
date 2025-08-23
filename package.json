@@ -172,7 +172,7 @@
     "clean:full": "bash scripts/clean-artifacts.sh && git clean -fdX || true",
     "clean": "bash scripts/clean-artifacts.sh",
     "compile": "tsc -watch -p ./",
-  "lint": "eslint \"src/**/*.ts\" --cache --cache-location .eslintcache",
+    "lint": "eslint \"src/**/*.ts\" --cache --cache-location .eslintcache",
     "package": "npm run build:bundle && npx @vscode/vsce package",
     "postbundle": "find out -type f ! -name extension.js ! -path 'out/test/*' -delete",
     "postversion": "git push --follow-tags",
