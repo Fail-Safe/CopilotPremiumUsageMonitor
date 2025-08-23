@@ -166,6 +166,19 @@ Color logic: green (under warn), yellow (>= warn), red (>= danger), error stylin
 
 Extra diagnostics: run **Show Logs** (or enable `showLogOnError`).
 
+### Token Migration Timing (Secure Storage)
+
+The move from plaintext setting to secret storage is usually instant, but UI/state can appear to “lag” for a second or two due to VS Code’s async secret APIs. Common transient observations:
+
+| Observation | Explanation | Action |
+|-------------|-------------|--------|
+| Green secure pill shows but migration hint still visible for a moment | Residual plaintext value still detected until panel re-reads post‑clear | Wait a moment or click Clear Plaintext; it will disappear automatically. |
+| Warning pill (secure + plaintext) persists after you cleared the setting | Secret write finished first; panel cached prior config cycle | Trigger a manual Refresh or re-open panel; hint window will expire. |
+| No secure pill immediately after setting token | Secret not yet readable; extension assumes secure for a short window | Give it ~2–3s; if still absent, run Set Token command again and check logs. |
+| Secure pill remains after Clear Stored Token | Secure “assume” window (a short grace period) still active | Wait a couple seconds; if it persists, use Clear command again and look at Output Channel. |
+
+If issues remain after ~5s: open **Show Logs**, copy any lines tagged `[secrets]`, and file an issue.
+
 ---
 
 ## 🔒 Permissions, Data & Privacy

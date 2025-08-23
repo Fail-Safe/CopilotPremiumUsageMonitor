@@ -6,10 +6,17 @@ This project is intended to show the premium usage amount/cost of Copilot Premiu
 
 ## Features
 
-- View real-time usage statistics for Copilot Premium Request SKU
-- Set budget alerts for your Copilot Premium Request SKU usage
+- Real-time budget usage percentage (status bar + panel)
+- Personal monthly spend (Enhanced Billing) & org engagement metrics
+- Configurable warn / danger thresholds & refresh interval
+- Secure PAT storage (Secret Storage) with migration from legacy plaintext setting
+- Help and troubleshooting banners with log channel for diagnostics
 
 ## Requirements
 
 - Visual Studio Code
 - GitHub account with access to Copilot Pro/Pro+
+
+## Security
+
+PATs are stored in VS Code Secret Storage. The legacy plaintext setting is auto‑migrated and should be cleared after upgrade.

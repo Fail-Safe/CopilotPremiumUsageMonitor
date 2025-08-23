@@ -10,12 +10,27 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
 <!-- Placeholder for upcoming release notes. Add new sections (Added/Changed/Fixed/etc.) here. -->
-### Changed
-- Changelog housekeeping: deduplicated 0.4.3 duplicate entries and reset Unreleased placeholder.
+
+## [0.5.0] - 2025-08-22
 ### Added
-- Secure token indicator now always visible when a secret exists (green) and shows a warning variant if a residual plaintext token remains.
-- Localization keys for secure token indicator (`cpum.secureToken.indicator.*`).
-- README section documenting dual-state secure token indicator and remediation guidance.
+- Secure token indicator (pill) with dual states: green (secure only) and warning (secure + residual plaintext).
+- Residual plaintext migration hint window ensuring late-opened panel still shows remediation CTA.
+- Token state machine (`tokenState.ts`) with deterministic windows (assume, retain, suppress) replacing ad-hoc timing flags.
+- Unit tests for residual token retention logic; expanded integration tests covering live refresh & migration edge cases.
+- Layout alignment: meter, buttons (left) and mode dropdown + pill badge (right) all aligned to banner edges.
+- Defensive polling & heuristic fixes reducing flakiness in secure token + no-token hint tests.
+### Changed
+- Migration flow consolidated; residual plaintext hint always appears when both secure + legacy tokens exist until cleared.
+- Plaintext token setting deprecated messaging clarified; panel hint shows only once per getConfig cycle when relevant.
+- Clear-token command now immediately ends secure assume window (more accurate post-clear indicator).
+- Panel styling centered heading while keeping content edge-aligned; improved button row spacing.
+### Fixed
+- Race conditions where securePatOnly or residualPlaintext flags could be misclassified right after migration or clear.
+- Occasional missing no-token activation hint (now reliably emitted with polling safeguard in tests).
+- Potential stale org metrics error race via reaffirmed error clears.
+### Internal
+- Added optimistic `lastSetTokenValue` bridging secret storage latency while avoiding false securePatOnly during residual legacy.
+- Extended test helpers to clear heuristic windows and lastSetTokenValue between tests.
 
 ## [0.4.7] - 2025-08-13
 ### Planned / Proposed

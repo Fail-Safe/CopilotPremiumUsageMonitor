@@ -134,6 +134,10 @@ Follow standard Conventional Commits where practical (e.g., `feat:`, `fix:`, `do
 - For status bar color debugging modify thresholds & observe immediate refresh events.
 - For webview messaging issues, add temporary log lines in `_dispatch` (ensure removal before commit).
 
+### Token State Machine
+
+`src/lib/tokenState.ts` centralizes timing heuristics (secure assume window, legacy retain & suppress windows) to avoid scattered boolean races. Tests in `src/test/unit/tokenState.residualHint.test.ts` and integration suites cover migration + residual plaintext hint windows. When adjusting timings, update constants there and adapt any hardcoded waits in integration tests referencing those windows.
+
 ---
 
 ## Roadmap (Lightweight / Non‑binding)
