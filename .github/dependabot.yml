@@ -1,0 +1,54 @@
+version: 2
+
+# Dependabot configuration to keep dependencies and workflows updated.
+# Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+updates:
+  # NPM (extension & build/test tooling)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "saturday"
+      time: "04:00"
+      timezone: "Etc/UTC"
+    # Group related dev-tooling to reduce PR noise.
+    groups:
+      eslint-stack:
+        patterns:
+          - "eslint"
+          - "@typescript-eslint/*"
+      types-packages:
+        patterns:
+          - "@types/*"
+      test-tooling:
+        patterns:
+          - "mocha"
+          - "@vscode/test-electron"
+          - "c8"
+          - "nyc"
+      build-tooling:
+        patterns:
+          - "esbuild"
+          - "rimraf"
+    open-pull-requests-limit: 10
+    versioning-strategy: increase
+    # Avoid surprise major TypeScript bumps; handle manually.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+  # Using normal updates (security + version) by default.
+
+  # GitHub Actions workflow dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "saturday"
+      time: "04:30"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+
+# Optional future ideas:
+# - Add separate daily security-only run with `interval: daily` and `security-updates-only: true`.
+# - Introduce labels or reviewers here if desired.
