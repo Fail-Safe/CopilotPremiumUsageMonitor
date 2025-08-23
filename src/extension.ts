@@ -198,9 +198,11 @@ class UsagePanel {
 						updateStatusBar();
 						break;
 					}
-					const cfgR = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const org = trimmedSetting(cfgR, 'org');
+					const cfgR = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); let org = trimmedSetting(cfgR, 'org');
 					const incomingMode = (message.mode as string | undefined) ?? (cfgR.get('mode')) ?? 'auto';
 					const mode = incomingMode === 'personal' || incomingMode === 'org' ? incomingMode : 'auto';
+					// In fast test sequences the org setting write may not be observable immediately; retry once for auto mode.
+					if (mode === 'auto' && !org) { try { await new Promise(r => setTimeout(r, 40)); org = trimmedSetting(vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'), 'org'); } catch { /* noop */ } }
 					const effectiveMode = mode === 'auto' ? (org ? 'org' : 'personal') : mode;
 					if (effectiveMode === 'org') {
 						let allowFallback = mode === 'auto';
@@ -270,6 +272,8 @@ class UsagePanel {
 		};
 		this.panel.webview.onDidReceiveMessage((m) => { void this._dispatch?.(m); });
 		this.update();
+		// Immediately emit a config snapshot so warning/error replay (icon override, last error) occurs without waiting for explicit getConfig.
+		void postFreshConfig();
 		void this.maybeShowFirstRunNotice();
 	}
 	dispose() { UsagePanel.currentPanel = undefined; try { this.panel.dispose(); } catch { noop(); } while (this.disposables.length) { try { this.disposables.pop()?.dispose(); } catch { noop(); } } }
