@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ main ]
@@ -69,6 +72,25 @@ jobs:
         run: xvfb-run -a npm run test:activation
         env:
           CI: true
+
+      - name: Full coverage (unit + integration) & badge
+        # Generates merged lcov and writes coverage/coverage-badge.json
+        run: xvfb-run -a npm run test:coverage:full
+        env:
+          CI: true
+
+      - name: Commit coverage badge
+        if: github.ref == 'refs/heads/main'
+        run: |
+          if git diff --quiet --exit-code coverage/coverage-badge.json 2>/dev/null; then
+            echo "No coverage badge changes to commit.";
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add coverage/coverage-badge.json
+            git commit -m "chore: update coverage badge" || echo "Nothing to commit";
+            git push || echo "Push skipped";
+          fi
 
       - name: Upload coverage (lcov)
         if: always()

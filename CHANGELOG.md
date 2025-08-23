@@ -11,6 +11,15 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 
 <!-- Placeholder for upcoming release notes. -->
 
+## [0.6.2] - 2025-08-23
+### Changed
+- Enforced uniform 95% coverage thresholds (lines, functions, statements, branches) via nyc config; branches ratcheted up from prior staged values.
+### Fixed
+- Removed residual CI flakiness (org refresh network error stale path, personal 404 stale tag, auto mode routing, status bar stale indicator timing, icon override warning replay).
+### Internal
+- Added targeted polling / propagation wait loops and light retry logic in integration tests to stabilize async config & state assertions.
+- Hardened quality gates: build now fails on any coverage regression below enforced thresholds. No user‑visible runtime changes.
+
 ## [0.6.1] - 2025-08-23
 ### Fixed
 - Restored Changelog tab in Marketplace by re-including `CHANGELOG.md` in packaged VSIX (removed exclusion from `.vscodeignore`). No runtime code changes.

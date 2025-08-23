@@ -1,7 +1,7 @@
 # Copilot Premium Usage Monitor
 
 ![CI](https://img.shields.io/github/actions/workflow/status/Fail-Safe/CopilotPremiumUsageMonitor/ci.yml?branch=main)
-![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Fail-Safe/CopilotPremiumUsageMonitor/main/coverage/coverage-badge.json)
+![Coverage (lines)](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Fail-Safe/CopilotPremiumUsageMonitor/main/coverage/coverage-badge.json)
 ![Tests](https://img.shields.io/github/actions/workflow/status/Fail-Safe/CopilotPremiumUsageMonitor/ci.yml?label=tests&branch=main)
 
 Visual Studio Code extension to view your GitHub Copilot Premium (Request SKU) usage and stay within a self‑defined monthly budget – right from the status bar & a rich panel.
@@ -40,6 +40,10 @@ You’ll immediately get a status bar percentage + progress bar. Open the panel 
 - Help banner (first run) to guide correct auth + PAT setup.
 - Output channel logging & on‑error auto open option.
 - Zero external telemetry; only talks to `api.github.com`.
+
+Reliability & Quality:
+
+- CI enforces 95% minimum across lines, branches, functions, and statements (nyc). The coverage badge reflects line coverage from the latest main branch build.
 
 ---
 

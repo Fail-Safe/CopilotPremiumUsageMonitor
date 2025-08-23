@@ -2,7 +2,7 @@
   "name": "copilot-premium-usage-monitor",
   "displayName": "Copilot Premium Usage Monitor",
   "description": "Monitor usage and budget for Copilot Premium Request SKU from VS Code.",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "publisher": "fail-safe",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -212,5 +212,22 @@
     "@octokit/rest": "^22.0.0",
     "vscode-nls": "^5.2.0"
   },
-  "nyc": {}
+  "nyc": {
+    "all": true,
+    "extension": [
+      ".ts"
+    ],
+    "include": [
+      "src/**/*.ts"
+    ],
+    "exclude": [
+      "**/test/**",
+      "out/**"
+    ],
+    "check-coverage": true,
+    "branches": 95,
+    "lines": 95,
+    "functions": 95,
+    "statements": 95
+  }
 }
