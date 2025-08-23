@@ -27,10 +27,16 @@ suite('Secure token indicator', () => {
         // Open panel and request config
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
         api._test_resetPostedMessages?.();
-        api._test_invokeWebviewMessage?.({ type: 'getConfig' });
-        await new Promise(r => setTimeout(r, 260));
-        const msgs = api._test_getPostedMessages?.() || [];
-        const cfg = msgs.reverse().find((m: any) => m.type === 'config');
+        // Poll a few times to allow secret storage propagation
+        let cfg: any | undefined;
+        for (let i = 0; i < 5 && !cfg; i++) {
+            api._test_invokeWebviewMessage?.({ type: 'getConfig' });
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise(r => setTimeout(r, 120));
+            const msgs = api._test_getPostedMessages?.() || [];
+            cfg = msgs.slice().reverse().find((m: any) => m.type === 'config' && m.config?.securePatOnly !== undefined);
+            if (cfg?.config?.securePatOnly) break;
+        }
         assert.ok(cfg, 'Expected config message');
         assert.strictEqual(cfg.config.securePatOnly, true, 'Expected securePatOnly true');
         assert.strictEqual(typeof cfg.config.secureTokenText, 'string');

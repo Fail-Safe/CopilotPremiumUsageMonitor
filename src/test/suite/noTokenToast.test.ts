@@ -33,9 +33,15 @@ test('no-token activation hint appears after opening panel (mode=personal)', asy
     await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
     // request config to trigger hint post
     api._test_invokeWebviewMessage?.({ type: 'getConfig' });
-    await new Promise(r => setTimeout(r, 300));
-    const msgs = api._test_getPostedMessages?.() || [];
-    const hint = msgs.find((m: any) => m.type === 'setTokenHint' && /No secure token/i.test(m.message || ''));
+    let hint: any | undefined; let attempts = 6;
+    for (let i = 0; i < attempts; i++) {
+        await new Promise(r => setTimeout(r, 120));
+        const msgs = api._test_getPostedMessages?.() || [];
+        hint = msgs.find((m: any) => m.type === 'setTokenHint' && /No secure token/i.test(m.message || ''));
+        if (hint) break;
+        // Re-invoke getConfig once mid-way to force resend if timing dropped initial
+        if (i === 2) { api._test_invokeWebviewMessage?.({ type: 'getConfig' }); }
+    }
     assert.ok(hint, 'Expected setTokenHint message when no token present in personal context');
 });
 

@@ -11,7 +11,7 @@ class Elem {
     parent?: Elem;
     textContent: string = '';
     innerHTML: string = '';
-    _listeners: Record<string, Function> = {};
+    _listeners: Record<string, (...args: any[]) => void> = {};
     classList = {
         _s: new Set<string>(),
         add: (c: string) => { this.classList._s.add(c); },
@@ -31,7 +31,7 @@ class Elem {
         }
         return null;
     }
-    addEventListener(ev: string, fn: Function) { this._listeners[ev] = fn; }
+    addEventListener(ev: string, fn: (...args: any[]) => void) { this._listeners[ev] = fn; }
 }
 
 const elementsById = new Map<string, Elem>();
