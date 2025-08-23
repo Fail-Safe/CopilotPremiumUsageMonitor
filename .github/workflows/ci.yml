@@ -19,6 +19,9 @@ jobs:
   build-test:
     name: Lint & Test (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    env:
+      # Pin VS Code version used by @vscode/test-electron (update as needed)
+      VSCODE_VERSION: 1.103.2
     strategy:
       fail-fast: false
       matrix:
@@ -63,9 +66,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .vscode-test
-          key: vscode-test-${{ runner.os }}-${{ matrix.node }}-${{ hashFiles('package-lock.json') }}-v1
+          key: vscode-test-${{ runner.os }}-${{ matrix.node }}-${{ env.VSCODE_VERSION }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('package.json') }}
           restore-keys: |
+            vscode-test-${{ runner.os }}-${{ matrix.node }}-${{ env.VSCODE_VERSION }}-${{ hashFiles('package-lock.json') }}-
+            vscode-test-${{ runner.os }}-${{ matrix.node }}-${{ env.VSCODE_VERSION }}-
             vscode-test-${{ runner.os }}-${{ matrix.node }}-
+            vscode-test-${{ runner.os }}-
 
       - name: Activation tests (VS Code integration)
         # VS Code tests need a virtual display; xvfb-run provides that
@@ -123,6 +129,8 @@ jobs:
     needs: build-test
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    env:
+      VSCODE_VERSION: 1.103.2
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -150,9 +158,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .vscode-test
-          key: vscode-test-${{ runner.os }}-20x-${{ hashFiles('package-lock.json') }}-v1
+          key: vscode-test-${{ runner.os }}-20x-${{ env.VSCODE_VERSION }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('package.json') }}
           restore-keys: |
+            vscode-test-${{ runner.os }}-20x-${{ env.VSCODE_VERSION }}-${{ hashFiles('package-lock.json') }}-
+            vscode-test-${{ runner.os }}-20x-${{ env.VSCODE_VERSION }}-
             vscode-test-${{ runner.os }}-20x-
+            vscode-test-${{ runner.os }}-
 
       - name: Package Extension (.vsix)
         run: npm run package
