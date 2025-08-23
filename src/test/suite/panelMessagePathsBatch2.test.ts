@@ -6,7 +6,7 @@ suite('Panel message paths batch2', () => {
         const id = 'fail-safe.copilot-premium-usage-monitor';
         const ext = vscode.extensions.getExtension(id)!;
         await ext.activate();
-        return ext.exports as any;
+        return ext.exports;
     }
 
     test('help path increments help invocation counter', async () => {

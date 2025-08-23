@@ -28,7 +28,7 @@ suite('Secure token indicator live refresh', () => {
         // Stub input box to provide a token for setTokenSecure
         const tokenValue = 'live_refresh_token_' + Date.now();
         const origInput = (vscode.window.showInputBox as any);
-        (vscode.window.showInputBox as any) = async () => tokenValue;
+        (vscode.window.showInputBox as any) = () => Promise.resolve(tokenValue);
         try {
             await vscode.commands.executeCommand('copilotPremiumUsageMonitor.setTokenSecure');
         } finally {
@@ -50,7 +50,7 @@ suite('Secure token indicator live refresh', () => {
         // Now clear posted messages and invoke clearTokenSecure
         api._test_resetPostedMessages?.();
         const origQP = (vscode.window.showQuickPick as any);
-        (vscode.window.showQuickPick as any) = async () => 'Yes, clear stored token';
+        (vscode.window.showQuickPick as any) = () => Promise.resolve('Yes, clear stored token');
         try {
             await vscode.commands.executeCommand('copilotPremiumUsageMonitor.clearTokenSecure');
         } finally {

@@ -6,20 +6,20 @@ suite('Panel refresh message paths (org)', () => {
         const id = 'fail-safe.copilot-premium-usage-monitor';
         const ext = vscode.extensions.getExtension(id)!;
         await ext.activate();
-        return ext.exports as any;
+        return ext.exports;
     }
 
-    test('org refresh success clears stale', async () => {
+    void test('org refresh success clears stale', async () => {
         const api = await activate();
         api._test_clearLastError?.();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'ORG_TOKEN', vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', 'my-org', vscode.ConfigurationTarget.Global);
         api._test_setOctokitFactory(() => ({
-            request: async (route: string) => {
+            request: (route: string) => {
                 if (route === 'GET /orgs/{org}/copilot/metrics') return { data: [] };
                 if (route === 'GET /user') return { data: { login: 'tester' } };
                 throw new Error('Unexpected route ' + route);
-            }, paginate: async () => []
+            }, paginate: () => []
         }));
         await api._test_refreshOrg();
         let err: string | undefined; const start = Date.now();
@@ -27,17 +27,17 @@ suite('Panel refresh message paths (org)', () => {
         assert.ok(!err, 'Org refresh success should clear last error');
     });
 
-    test('org refresh network error sets stale', async () => {
+    void test('org refresh network error sets stale', async () => {
         const api = await activate();
         api._test_clearLastError?.();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'ORG_TOKEN2', vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', 'my-org', vscode.ConfigurationTarget.Global);
         api._test_setOctokitFactory(() => ({
-            request: async (route: string) => {
+            request: (route: string) => {
                 if (route === 'GET /orgs/{org}/copilot/metrics') { const err: any = new Error('Network Unreachable'); err.message = 'Network Unreachable'; throw err; }
                 if (route === 'GET /user') return { data: { login: 'tester' } };
                 throw new Error('Unexpected route ' + route);
-            }, paginate: async () => []
+            }, paginate: () => []
         }));
         await api._test_refreshOrg();
         let err: string | undefined; const start = Date.now();

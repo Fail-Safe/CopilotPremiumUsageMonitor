@@ -13,8 +13,8 @@ const { deriveTokenState, recordMigrationKeep, resetAllTokenStateWindows } = req
 // even if the raw legacy setting temporarily appears absent; UI layer uses a separate pendingResidualHintUntil, but
 // this window models similar temporal grace guaranteeing hint visibility after migration keep.
 
-describe('tokenState residual window', () => {
-    it('sets BOTH state immediately after migration keep when both present', () => {
+void describe('tokenState residual window', () => {
+    void it('sets BOTH state immediately after migration keep when both present', () => {
         resetAllTokenStateWindows();
         // Simulate both secure + legacy present via inputs and call keep (which sets retain window + secure assume window)
         recordMigrationKeep();
@@ -23,7 +23,8 @@ describe('tokenState residual window', () => {
         assert.equal(s.residualPlaintext, true);
     });
 
-    it('retains legacy presence during retain window even if legacyPresentRaw false', async () => {
+    void it('retains legacy presence during retain window even if legacyPresentRaw false', async () => {
+        await Promise.resolve();
         resetAllTokenStateWindows();
         recordMigrationKeep();
         // Immediately after migration, legacyPresentRaw could race to false in some scenarios; retention should keep BOTH
@@ -32,7 +33,8 @@ describe('tokenState residual window', () => {
         assert.equal(s.residualPlaintext, true);
     });
 
-    it('eventually drops to SECURE_ONLY after retain window expires', async () => {
+    void it('eventually drops to SECURE_ONLY after retain window expires', async () => {
+        await Promise.resolve();
         resetAllTokenStateWindows();
         recordMigrationKeep();
         // Fast-forward time by manually injecting now > LEGACY_RETAIN_MS by adding 6000ms

@@ -7,7 +7,7 @@ suite('Status bar extra branches', () => {
         const id = 'fail-safe.copilot-premium-usage-monitor';
         const ext = vscode.extensions.getExtension(id)!;
         await ext.activate();
-        return ext.exports as any;
+        return ext.exports;
     }
 
     test('applies green color when theme color disabled and shows last sync timestamp logic', async () => {

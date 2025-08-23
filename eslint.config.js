@@ -59,7 +59,11 @@ module.exports = [
         // Test overrides (loosen a couple of rules that are noisy in tests)
         files: ['src/test/**/*.ts'],
         rules: {
-            '@typescript-eslint/no-unused-expressions': 'off'
+            '@typescript-eslint/no-unused-expressions': 'off',
+            // Allow un-awaited test/it/describe registrations (Node test framework returns a promise)
+            '@typescript-eslint/no-floating-promises': 'off',
+            // Do not force artificial awaits inside test callbacks that don't need them
+            '@typescript-eslint/require-await': 'off'
         }
     }
 ];

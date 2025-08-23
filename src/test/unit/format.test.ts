@@ -10,14 +10,14 @@ const cfgProps = pkg?.contributes?.configuration?.properties || {};
 const DEFAULT_WARN = cfgProps['copilotPremiumUsageMonitor.warnAtPercent']?.default ?? 75;
 const DEFAULT_DANGER = cfgProps['copilotPremiumUsageMonitor.dangerAtPercent']?.default ?? 90;
 
-test('computeUsageBar basic distribution', () => {
+void test('computeUsageBar basic distribution', () => {
     assert.equal(computeUsageBar(0), '▱'.repeat(10));
     assert.equal(computeUsageBar(100), '▰'.repeat(10));
     const mid = computeUsageBar(55); // rounding to nearest segment
     assert.equal(mid.length, 10);
 });
 
-test('formatRelativeTime buckets', () => {
+void test('formatRelativeTime buckets', () => {
     const now = Date.now();
     assert.equal(formatRelativeTime(now, now), 'just now');
     assert.equal(formatRelativeTime(now - 10_000, now).endsWith('s ago'), true);
@@ -44,7 +44,7 @@ test('formatRelativeTime buckets', () => {
     assert.equal(formatRelativeTime(now - 80_000, now), '1m ago');
 });
 
-test('pickIcon selects error variants and override', () => {
+void test('pickIcon selects error variants and override', () => {
     const err = pickIcon({ percent: 10, warnAt: DEFAULT_WARN, dangerAt: DEFAULT_DANGER, error: 'Network failure', mode: 'personal' });
     assert.equal(err.icon, 'cloud-offline');
     const ok = pickIcon({ percent: 10, warnAt: DEFAULT_WARN, dangerAt: DEFAULT_DANGER, mode: 'personal', override: 'graph' });

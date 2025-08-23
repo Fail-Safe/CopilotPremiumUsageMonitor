@@ -41,6 +41,16 @@ async function getOctokit(auth?: string) {
 	return new Octokit({ auth, request: { headers: { 'X-GitHub-Api-Version': '2022-11-28' } } });
 }
 
+// Small helper: fetch a string setting, returning trimmed string or undefined without needing per-call assertions.
+function trimmedSetting(cfg: vscode.WorkspaceConfiguration, key: string): string | undefined {
+	const v = cfg.get(key);
+	if (typeof v === 'string') {
+		const t = v.trim();
+		return t.length ? t : '' === t ? '' : undefined; // preserve intentional empty string vs undefined where callers differentiate
+	}
+	return undefined;
+}
+
 // ---------- Panel ----------
 class UsagePanel {
 	public static currentPanel: UsagePanel | undefined;
@@ -48,13 +58,13 @@ class UsagePanel {
 	private readonly extensionUri: vscode.Uri;
 	private readonly globalState: vscode.Memento;
 	private disposables: vscode.Disposable[] = [];
-	private _dispatch?: (msg: any) => void; // test hook
+	private _dispatch?: (msg: any) => Promise<void>; // test hook (async)
 
 	static async ensureGitHubSession(): Promise<vscode.AuthenticationSession | undefined> {
 		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-		const token = (cfg.get('token') as string | undefined)?.trim();
+		const token = trimmedSetting(cfg, 'token');
 		if (token) return undefined; // PAT present
-		try { return await vscode.authentication.getSession('github', ['read:org'], { createIfNone: true }); } catch { vscode.window.showErrorMessage('GitHub sign-in failed or was cancelled.'); maybeAutoOpenLog(); return undefined; }
+		try { return await vscode.authentication.getSession('github', ['read:org'], { createIfNone: true }); } catch { void vscode.window.showErrorMessage('GitHub sign-in failed or was cancelled.'); maybeAutoOpenLog(); return undefined; }
 	}
 
 	static createOrShow(context: vscode.ExtensionContext) {
@@ -67,7 +77,7 @@ class UsagePanel {
 	private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
 		this.panel = panel; this.extensionUri = extensionUri; this.globalState = context.globalState;
 		this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
-		this._dispatch = async (message: any) => {
+		this._dispatch = async (message: any): Promise<void> => {
 			switch (message.type) {
 				case 'getConfig': {
 					try {
@@ -77,7 +87,7 @@ class UsagePanel {
 						// Read token info and check for residual plaintext
 						let secret: string | undefined; let legacy: string | undefined;
 						try { secret = extCtx ? await extCtx.secrets.get(getSecretStorageKey()) || undefined : undefined; } catch { /* ignore */ }
-						try { legacy = (cfgNew.get('token') as string | undefined)?.trim(); } catch { /* ignore */ }
+						try { legacy = trimmedSetting(cfgNew, 'token'); } catch { /* ignore */ }
 						const legacyPresentRaw = !!legacy;
 						// Derive via state machine (optimistic flag bridges small secret propagation gaps)
 						// Use optimistic flag only for hasSecurePat, not for securePatOnly gating; derive raw then adjust
@@ -93,9 +103,9 @@ class UsagePanel {
 						const residualPlaintext = ts.residualPlaintext;
 						// Build config
 						const baseConfig = {
-							budget: (cfgNew.get('budget') as number | undefined) ?? (cfgOld.get('budget') as number | undefined),
-							org: (cfgNew.get('org') as string | undefined) ?? (cfgOld.get('org') as string | undefined),
-							mode: (cfgNew.get('mode') as string | undefined) ?? 'auto',
+							budget: (cfgNew.get('budget')) ?? (cfgOld.get('budget')),
+							org: (cfgNew.get('org')) ?? (cfgOld.get('org')),
+							mode: (cfgNew.get('mode')) ?? 'auto',
 							warnAtPercent: Number(cfgNew.get('warnAtPercent') ?? DEFAULT_WARN_AT_PERCENT),
 							dangerAtPercent: Number(cfgNew.get('dangerAtPercent') ?? DEFAULT_DANGER_AT_PERCENT),
 							hasPat,
@@ -135,7 +145,7 @@ class UsagePanel {
 							});
 						}
 						// Session detection
-						(async () => {
+						void (async () => {
 							try {
 								const s = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: false });
 								if (s) {
@@ -173,19 +183,30 @@ class UsagePanel {
 				}
 				case 'refresh': {
 					const token = await getGitHubToken();
-					if (!token) { const m = 'Authentication error: Please sign in or provide a valid PAT.'; this.post({ type: 'error', message: m }); await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', m); vscode.window.showErrorMessage(m); maybeAutoOpenLog(); updateStatusBar(); break; }
-					const cfgR = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const org = (cfgR.get('org') as string | undefined)?.trim();
-					const incomingMode = (message.mode as string | undefined) ?? (cfgR.get('mode') as string | undefined) ?? 'auto';
+					if (!token) {
+						const m = 'Authentication error: Please sign in or provide a valid PAT.';
+						this.post({ type: 'error', message: m });
+						await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', m);
+						void vscode.window.showErrorMessage(m);
+						maybeAutoOpenLog();
+						updateStatusBar();
+						break;
+					}
+					const cfgR = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const org = trimmedSetting(cfgR, 'org');
+					const incomingMode = (message.mode as string | undefined) ?? (cfgR.get('mode')) ?? 'auto';
 					const mode = incomingMode === 'personal' || incomingMode === 'org' ? incomingMode : 'auto';
 					const effectiveMode = mode === 'auto' ? (org ? 'org' : 'personal') : mode;
 					if (effectiveMode === 'org') {
 						let allowFallback = mode === 'auto';
 						try {
-							const metrics = await fetchOrgCopilotMetrics(org!, token, {});
+							if (!org) { break; }
+							const metrics = await fetchOrgCopilotMetrics(org, token, {});
 							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch (e) { noop(); }
 							// Also clear any lingering error indicator by posting clearError
 							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch (e) { noop(); }
-							this.post({ type: 'metrics', metrics }); this.post({ type: 'clearError' }); updateStatusBar();
+							this.post({ type: 'metrics', metrics });
+							this.post({ type: 'clearError' });
+							updateStatusBar();
 							try { await postFreshConfig(); } catch { /* noop */ }
 							break;
 						} catch (e: any) {
@@ -195,7 +216,11 @@ class UsagePanel {
 							else if (e?.message?.toLowerCase()?.includes('network')) { msg = 'Network error: Unable to reach GitHub.'; }
 							else if (e?.message) { msg = `Failed to sync org metrics: ${e.message}`; }
 							if (!allowFallback) {
-								this.post({ type: 'error', message: msg }); await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); vscode.window.showErrorMessage(msg); maybeAutoOpenLog(); updateStatusBar();
+								this.post({ type: 'error', message: msg });
+								await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg);
+								void vscode.window.showErrorMessage(msg);
+								maybeAutoOpenLog();
+								updateStatusBar();
 								break;
 							}
 						}
@@ -206,7 +231,10 @@ class UsagePanel {
 							const now = new Date(); const year = now.getUTCFullYear(); const month = now.getUTCMonth() + 1; const billing = await fetchUserBillingUsage(login, token, { year, month });
 							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch (e) { noop(); }
 							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch (e) { noop(); }
-							await this.setSpend(billing.totalNetAmount); this.post({ type: 'billing', billing }); this.post({ type: 'clearError' }); this.update();
+							await this.setSpend(billing.totalNetAmount);
+							this.post({ type: 'billing', billing });
+							this.post({ type: 'clearError' });
+							this.update();
 						} catch (e: any) {
 							let msg = 'Failed to sync usage.';
 							if (e?.status === 404) msg = 'Personal billing usage endpoint returned 404.';
@@ -214,7 +242,11 @@ class UsagePanel {
 							else if (e?.message?.includes('401') || e?.message?.includes('403')) msg = 'Authentication error: Please sign in or provide a valid PAT.';
 							else if (e?.message?.toLowerCase()?.includes('network')) msg = 'Network error: Unable to reach GitHub.';
 							else if (e?.message) msg = `Failed to sync usage: ${e.message}`;
-							this.post({ type: 'error', message: msg }); await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); vscode.window.showErrorMessage(msg); maybeAutoOpenLog(); updateStatusBar();
+							this.post({ type: 'error', message: msg });
+							await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg);
+							void vscode.window.showErrorMessage(msg);
+							maybeAutoOpenLog();
+							updateStatusBar();
 						}
 					}
 					break;
@@ -226,18 +258,18 @@ class UsagePanel {
 					break;
 			}
 		};
-		this.panel.webview.onDidReceiveMessage(this._dispatch);
+		this.panel.webview.onDidReceiveMessage((m) => { void this._dispatch?.(m); });
 		this.update();
-		this.maybeShowFirstRunNotice();
+		void this.maybeShowFirstRunNotice();
 	}
 	dispose() { UsagePanel.currentPanel = undefined; try { this.panel.dispose(); } catch (e) { noop(); } while (this.disposables.length) { try { this.disposables.pop()?.dispose(); } catch (e2) { noop(); } } }
 	private post(data: any) {
 		if (data && typeof data === 'object') { try { _test_postedMessages.push(data); } catch { /* noop */ } }
 		if (data.type === 'config') {
-			try { const lastError = this.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError'); if (lastError) { const errMsg = { type: 'error', message: lastError }; try { this.panel.webview.postMessage(errMsg); _test_postedMessages.push(errMsg); } catch { /* disposed */ } } } catch { /* noop */ }
-			try { const iconWarn = this.globalState.get<string>('copilotPremiumUsageMonitor.iconOverrideWarning'); if (iconWarn) { const warnMsg = { type: 'iconOverrideWarning', message: iconWarn }; try { this.panel.webview.postMessage(warnMsg); _test_postedMessages.push(warnMsg); } catch { /* disposed */ } } } catch { /* noop */ }
+			try { const lastError = this.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError'); if (lastError) { const errMsg = { type: 'error', message: lastError }; try { void this.panel.webview.postMessage(errMsg); _test_postedMessages.push(errMsg); } catch { /* disposed */ } } } catch { /* noop */ }
+			try { const iconWarn = this.globalState.get<string>('copilotPremiumUsageMonitor.iconOverrideWarning'); if (iconWarn) { const warnMsg = { type: 'iconOverrideWarning', message: iconWarn }; try { void this.panel.webview.postMessage(warnMsg); _test_postedMessages.push(warnMsg); } catch { /* disposed */ } } } catch { /* noop */ }
 		}
-		try { this.panel.webview.postMessage(data); } catch { /* disposed */ }
+		try { void this.panel.webview.postMessage(data); } catch { /* disposed */ }
 	}
 	private get webviewHtml(): string {
 		const webview = this.panel.webview;
@@ -250,7 +282,7 @@ class UsagePanel {
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https:; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<link href="${styleUri}" rel="stylesheet" />
+<link href="${styleUri.toString()}" rel="stylesheet" />
 <title>Copilot Premium Usage Monitor</title>
 </head>
 <body>
@@ -276,7 +308,7 @@ class UsagePanel {
 </div>
 </div>
 </div>
-<script nonce="${nonce}" src="${scriptUri}"></script>
+<script nonce="${nonce}" src="${scriptUri.toString()}"></script>
 </body>
 </html>`;
 	}
@@ -295,7 +327,7 @@ async function postFreshConfig() {
 		const cfgOld = vscode.workspace.getConfiguration('copilotPremiumMonitor');
 		let secret: string | undefined; let legacy: string | undefined;
 		try { secret = await extCtx.secrets.get(getSecretStorageKey()) || undefined; } catch { /* ignore */ }
-		try { legacy = (cfgNew.get('token') as string | undefined)?.trim(); } catch { /* ignore */ }
+		try { legacy = trimmedSetting(cfgNew, 'token'); } catch { /* ignore */ }
 		const legacyPresentRaw = !!legacy;
 		let ts = deriveTokenState({ secretPresent: !!secret || !!lastSetTokenValue, legacyPresentRaw });
 		if (!secret && lastSetTokenValue && legacyPresentRaw && ts.securePatOnly) { ts = { ...ts, securePatOnly: false }; }
@@ -306,9 +338,9 @@ async function postFreshConfig() {
 		const hasPat = ts.hasSecure || ts.hasLegacy;
 		const securePatOnly = ts.securePatOnly;
 		const baseConfig = {
-			budget: (cfgNew.get('budget') as number | undefined) ?? (cfgOld.get('budget') as number | undefined),
-			org: (cfgNew.get('org') as string | undefined) ?? (cfgOld.get('org') as string | undefined),
-			mode: (cfgNew.get('mode') as string | undefined) ?? 'auto',
+			budget: (cfgNew.get('budget')) ?? (cfgOld.get('budget')),
+			org: (cfgNew.get('org')) ?? (cfgOld.get('org')),
+			mode: (cfgNew.get('mode')) ?? 'auto',
 			warnAtPercent: Number(cfgNew.get('warnAtPercent') ?? DEFAULT_WARN_AT_PERCENT),
 			dangerAtPercent: Number(cfgNew.get('dangerAtPercent') ?? DEFAULT_DANGER_AT_PERCENT),
 			hasPat,
@@ -370,24 +402,24 @@ export function activate(context: vscode.ExtensionContext) {
 	// Kick off token migration check (fire & forget)
 	void maybeOfferTokenMigration(context);
 	const openPanel = vscode.commands.registerCommand('copilotPremiumUsageMonitor.openPanel', () => UsagePanel.createOrShow(context));
-	const signIn = vscode.commands.registerCommand('copilotPremiumUsageMonitor.signIn', async () => { await UsagePanel.ensureGitHubSession(); vscode.window.showInformationMessage('GitHub sign-in completed (if required).'); });
+	const signIn = vscode.commands.registerCommand('copilotPremiumUsageMonitor.signIn', async () => { await UsagePanel.ensureGitHubSession(); void vscode.window.showInformationMessage('GitHub sign-in completed (if required).'); });
 	const configureOrg = vscode.commands.registerCommand('copilotPremiumUsageMonitor.configureOrg', async () => {
 		try {
 			if (process.env.CPUM_TEST_FORCE_ORG_ERROR) throw new Error('Forced test org list error');
 			const token = await getGitHubToken();
-			if (!token) { vscode.window.showInformationMessage('Sign in to GitHub or set a token in settings first.'); return; }
+			if (!token) { void vscode.window.showInformationMessage('Sign in to GitHub or set a token in settings first.'); return; }
 			const octokit = await getOctokit(token);
 			const orgs: any[] = await octokit.paginate('GET /user/orgs', { per_page: 100 });
-			if (!orgs.length) { vscode.window.showInformationMessage('No organizations found for your account.'); return; }
+			if (!orgs.length) { void vscode.window.showInformationMessage('No organizations found for your account.'); return; }
 			const items: vscode.QuickPickItem[] = orgs.map(o => ({ label: String(o.login || ''), description: o.description || '' }));
 			const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Select an organization' });
 			if (pick && pick.label) {
 				await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', pick.label, vscode.ConfigurationTarget.Global);
-				vscode.window.showInformationMessage(`Organization set to ${pick.label}`);
+				void vscode.window.showInformationMessage(`Organization set to ${pick.label}`);
 			}
 		} catch (e: any) {
 			try { getLog().appendLine(`[configureOrg] Error: ${e?.message ?? e}`); } catch { /* noop */ }
-			vscode.window.showErrorMessage(`Failed to list organizations: ${e?.message ?? e}`);
+			void vscode.window.showErrorMessage(`Failed to list organizations: ${e?.message ?? e}`);
 			maybeAutoOpenLog();
 		}
 	});
@@ -434,7 +466,7 @@ export function activate(context: vscode.ExtensionContext) {
 		await context.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', false);
 	});
 	// Configuration change handler
-	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(async (e) => {
+	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
 		const affectsCore = e.affectsConfiguration('copilotPremiumUsageMonitor.budget')
 			|| e.affectsConfiguration('copilotPremiumUsageMonitor.warnAtPercent')
 			|| e.affectsConfiguration('copilotPremiumUsageMonitor.dangerAtPercent')
@@ -452,15 +484,15 @@ export function activate(context: vscode.ExtensionContext) {
 	// Avoid background refresh timers during tests to minimize race conditions affecting assertions.
 	if (!process.env.VSCODE_PID) { startAutoRefresh(); startRelativeTimeTicker(); }
 	// Show one-time toast if no secure/plaintext token and user is in a personal-spend context
-	(async () => {
+	void (async () => {
 		try {
 			if (!extCtx) return;
 			// Avoid conflicting with migration prompt or guard; only show if absolutely no token anywhere
 			const info = await readStoredToken(extCtx);
 			if (info.source !== 'none') return; // either settings or secret already in play
 			const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-			const mode = (cfg.get('mode') as string | undefined) ?? 'auto';
-			const org = (cfg.get('org') as string | undefined)?.trim();
+			const mode = (cfg.get('mode')) ?? 'auto';
+			const org = trimmedSetting(cfg, 'org');
 			const personalContext = mode === 'personal' || (mode === 'auto' && !org);
 			if (!personalContext) return; // org metrics only path does not need a PAT
 			const shownKey = 'copilotPremiumUsageMonitor.noTokenToastShown';
@@ -499,7 +531,7 @@ export async function _test_readTokenInfo() { if (!extCtx) return undefined; ret
 export async function _test_forceMigration(removeSetting: boolean) {
 	if (!extCtx) return;
 	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-	const val = (cfg.get('token') as string | undefined)?.trim();
+	const val = trimmedSetting(cfg, 'token');
 	const migrated = await migrateSettingToken(extCtx, removeSetting);
 	if (migrated) {
 		try { if (val) await waitForSecret(extCtx, 40, 30, val); } catch { /* noop */ }
@@ -572,7 +604,7 @@ interface MigrationResult { migrated: boolean; removedLegacy: boolean; }
 async function performExplicitMigration(context: vscode.ExtensionContext, notify: boolean): Promise<MigrationResult | undefined> {
 	try {
 		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-		const raw = (cfg.get('token') as string | undefined)?.trim();
+		const raw = trimmedSetting(cfg, 'token');
 		let removedLegacy = false;
 		if (!raw) return { migrated: false, removedLegacy: false };
 		// Optimistically record lastSetTokenValue before async persistence so config snapshots immediately after
@@ -582,7 +614,7 @@ async function performExplicitMigration(context: vscode.ExtensionContext, notify
 		await writeToken(context, raw);
 		try { if (extCtx) await waitForSecret(extCtx, 40, 25, raw); } catch { /* noop */ }
 		if (notify) {
-			vscode.window.showInformationMessage(localize('cpum.migration.success.kept', 'Token migrated to secure storage. (Plaintext copy left in settings.)'));
+			void vscode.window.showInformationMessage(localize('cpum.migration.success.kept', 'Token migrated to secure storage. (Plaintext copy left in settings.)'));
 		}
 		// If legacy kept, proactively emit migration hint to any open panel without waiting for user getConfig.
 		if (notify && UsagePanel.currentPanel) {
@@ -599,7 +631,7 @@ async function performExplicitMigration(context: vscode.ExtensionContext, notify
 			try { await cfg.update('token', '', vscode.ConfigurationTarget.Global); removedLegacy = true; recordSecureSetAndLegacyCleared(); } catch { /* noop */ }
 			if (removedLegacy) {
 				logSecrets('Legacy plaintext token cleared from settings after migration.');
-				vscode.window.showInformationMessage(localize('cpum.migration.success.removed', 'Token migrated to secure storage and removed from settings.'));
+				void vscode.window.showInformationMessage(localize('cpum.migration.success.removed', 'Token migrated to secure storage and removed from settings.'));
 			}
 		} else {
 			// Kept legacy plaintext intentionally
@@ -611,7 +643,7 @@ async function performExplicitMigration(context: vscode.ExtensionContext, notify
 		await postFreshConfig(); // includes safeguard to avoid stale no-token mismatch
 		return { migrated: true, removedLegacy };
 	} catch (e: any) {
-		vscode.window.showErrorMessage(localize('cpum.migration.failed', 'Token migration failed: {0}', e?.message || String(e)));
+		void vscode.window.showErrorMessage(localize('cpum.migration.failed', 'Token migration failed: {0}', e?.message || String(e)));
 		return undefined;
 	}
 }
@@ -634,7 +666,7 @@ function initStatusBar(context: vscode.ExtensionContext) {
 		}
 	} catch (err) {
 		getLog().appendLine(`[CopilotPremiumUsageMonitor] Error initializing status bar: ${err instanceof Error ? err.stack || err.message : String(err)}`);
-		vscode.window.showErrorMessage('Error initializing Copilot Premium Usage status bar. See Output channel for details.');
+		void vscode.window.showErrorMessage('Error initializing Copilot Premium Usage status bar. See Output channel for details.');
 		maybeAutoOpenLog();
 	}
 }
@@ -661,19 +693,19 @@ function updateStatusBar() {
 		const dangerAt = dangerAtRaw > 0 ? dangerAtRaw : Infinity;
 		const { mode } = getBudgetSpendAndMode();
 		const lastError = extCtx.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
-		const overrideRaw = (cfg.get('statusBarIconOverride') as string | undefined)?.trim() || undefined;
+		const overrideRaw = trimmedSetting(cfg, 'statusBarIconOverride') || undefined;
 		const { icon, forcedColor: forcedColorKey, staleTag } = pickIcon({ percent, warnAt, dangerAt, error: lastError, mode: mode as any, override: lastError ? undefined : overrideRaw });
 		// If no token (secure or plaintext) and in personal mode, treat as stale (cannot update usage)
 		const noTokenStale = '';
 		// Defer token availability check (async) but we still want stale marker quickly after promise resolves
-		(async () => {
+		void (async () => {
 			try {
 				if (mode === 'personal') {
-					const info = await readStoredToken(extCtx!);
-					const cfgToken = (cfg.get('token') as string | undefined)?.trim();
+					const info = await readStoredToken(extCtx);
+					const cfgToken = trimmedSetting(cfg, 'token');
 					if (!info.token && !cfgToken) {
-						if (!statusItem!.text.includes('[stale]')) {
-							statusItem!.text = `${statusItem!.text} [stale]`;
+						if (!statusItem.text.includes('[stale]')) {
+							statusItem.text = `${statusItem.text} [stale]`;
 						}
 						// We won't mutate existing tooltip here to avoid md ordering; user will see stale tag.
 					}
@@ -747,7 +779,7 @@ function updateStatusBar() {
 		statusItem.show();
 	} catch (err) {
 		getLog().appendLine(`[CopilotPremiumUsageMonitor] Error updating status bar: ${err instanceof Error ? err.stack || err.message : String(err)}`);
-		vscode.window.showErrorMessage('Error updating Copilot Premium Usage status bar. See Output channel for details.');
+		void vscode.window.showErrorMessage('Error updating Copilot Premium Usage status bar. See Output channel for details.');
 		maybeAutoOpenLog();
 	}
 }
@@ -760,8 +792,8 @@ function getBudgetSpendAndMode() {
 	const spend = extCtx?.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend') ?? 0;
 	const pct = budget > 0 ? Math.max(0, Math.min(1, spend / budget)) : 0;
 	const percent = Math.round(pct * 100);
-	const incomingMode = (cfg.get('mode') as string | undefined) ?? 'auto';
-	const org = (cfg.get('org') as string | undefined)?.trim();
+	const incomingMode = (cfg.get('mode')) ?? 'auto';
+	const org = trimmedSetting(cfg, 'org');
 	const mode = incomingMode === 'auto' ? (org ? 'org' : 'personal') : (incomingMode === 'org' || incomingMode === 'personal' ? incomingMode : 'auto');
 	return { budget, spend, pct, percent, mode };
 }
@@ -774,10 +806,10 @@ function startAutoRefresh() {
 	let minutes = Number(cfg.get('refreshIntervalMinutes') ?? 15);
 	if (!isFinite(minutes) || minutes <= 0) minutes = 15;
 	const ms = Math.max(5, Math.floor(minutes)) * 60 * 1000; // minimum 5 minutes
-	autoRefreshTimer = setInterval(() => performAutoRefresh().catch(() => { /* noop */ }), ms);
+	autoRefreshTimer = setInterval(() => { void performAutoRefresh().catch(() => { /* noop */ }); }, ms);
 	if (wasRunning) autoRefreshRestartCount++; // count restarts only (not initial start)
 	// Also perform one immediate refresh attempt non-interactively
-	performAutoRefresh().catch(() => { /* noop */ });
+	void performAutoRefresh().catch(() => { /* noop */ });
 }
 
 function restartAutoRefresh() { startAutoRefresh(); }
@@ -812,8 +844,8 @@ async function performAutoRefresh() {
 	const token = await getGitHubTokenNonInteractive();
 	if (!token) return; // quietly skip
 	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-	const org = (cfg.get('org') as string | undefined)?.trim();
-	const incomingMode = (cfg.get('mode') as string | undefined) ?? 'auto';
+	const org = trimmedSetting(cfg, 'org');
+	const incomingMode = (cfg.get('mode')) ?? 'auto';
 	const mode = incomingMode === 'auto' ? (org ? 'org' : 'personal') : incomingMode;
 	if (mode === 'personal') {
 		try {
@@ -843,7 +875,7 @@ async function getGitHubTokenNonInteractive(): Promise<string | undefined> {
 	// Prefer secret storage (may include migrated token)
 	try { if (extCtx) { const info = await readStoredToken(extCtx); if (info.token) return info.token; } } catch { /* ignore */ }
 	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-	const legacy = (cfg.get('token') as string | undefined)?.trim();
+	const legacy = trimmedSetting(cfg, 'token');
 	if (legacy) return legacy;
 	try {
 		const s = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: false });
@@ -856,7 +888,7 @@ async function getGitHubTokenNonInteractive(): Promise<string | undefined> {
 async function getGitHubToken(): Promise<string | undefined> {
 	try { if (extCtx) { const info = await readStoredToken(extCtx); if (info.token) return info.token; } } catch { /* ignore */ }
 	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-	const legacy = (cfg.get('token') as string | undefined)?.trim();
+	const legacy = trimmedSetting(cfg, 'token');
 	if (legacy) return legacy;
 	try {
 		const s = await vscode.authentication.getSession('github', ['read:org'], { createIfNone: true });
@@ -930,7 +962,7 @@ async function fetchUserBillingUsage(username: string, token: string, opts: { ye
 		day: opts.day,
 		hour: opts.hour,
 	});
-	const usageItems = (res.data as any).usageItems as BillingUsageItem[] | undefined;
+	const usageItems = (res.data).usageItems as BillingUsageItem[] | undefined;
 	const items = usageItems ?? [];
 	const copilotItems = items.filter((i) => i.product?.toLowerCase() === 'copilot');
 	const totalNetAmount = copilotItems.reduce((sum, i) => sum + (Number(i.netAmount) || 0), 0);
@@ -969,11 +1001,11 @@ export async function _test_setSpendAndUpdate(spend: number, budget?: number) {
 		updateStatusBar();
 	} catch { /* noop */ }
 }
-export function _test_setLastSyncTimestamp(ts: number) { try { extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', ts); } catch { /* noop */ } }
+export function _test_setLastSyncTimestamp(ts: number) { try { void extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', ts); } catch { /* noop */ } }
 export function _test_getRefreshIntervalId(): any { return autoRefreshTimer; }
 export function _test_getLogBuffer(): string[] | undefined { try { getLog(); return (_logChannel as any)?._buffer; } catch { return undefined; } }
-export function _test_clearLastError() { try { extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); updateStatusBar(); } catch { /* noop */ } }
-export function _test_setLastError(msg: string) { try { extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); updateStatusBar(); } catch { /* noop */ } }
+export function _test_clearLastError() { try { void extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); void extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); updateStatusBar(); } catch { /* noop */ } }
+export function _test_setLastError(msg: string) { try { void extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); updateStatusBar(); } catch { /* noop */ } }
 export function _test_getRefreshRestartCount() { return autoRefreshRestartCount; }
 export function _test_getLogAutoOpened() { return logAutoOpened; }
 export function _test_getSpend() { try { return extCtx?.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend'); } catch { return undefined; } }
@@ -1008,7 +1040,7 @@ export async function _test_refreshPersonal() {
 export async function _test_refreshOrg() {
 	const token = await getGitHubToken();
 	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-	const org = (cfg.get('org') as string | undefined)?.trim();
+	const org = trimmedSetting(cfg, 'org');
 	if (!token || !org || !extCtx) return;
 	try {
 		const metrics = await fetchOrgCopilotMetrics(org, token, {});
@@ -1016,8 +1048,8 @@ export async function _test_refreshOrg() {
 		await extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now());
 		updateStatusBar();
 		// Some tests poll _test_getLastError for up to ~500ms; schedule reaffirming clears to eliminate flakes from overlapping paths.
-		setTimeout(() => { try { if (extCtx) extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { /* noop */ } }, 200);
-		setTimeout(() => { try { if (extCtx) extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { /* noop */ } }, 400);
+		setTimeout(() => { try { if (extCtx) { void extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } } catch { /* noop */ } }, 200);
+		setTimeout(() => { try { if (extCtx) { void extCtx.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } } catch { /* noop */ } }, 400);
 		void metrics; // currently unused in status bar tests
 	} catch (e: any) {
 		let msg = 'Failed to sync org metrics.'; if (e?.status === 404) msg = 'Org metrics endpoint returned 404.'; else if (e?.message?.includes('401') || e?.message?.includes('403')) msg = 'Authentication error: Please sign in or provide a valid PAT.'; else if (e?.message?.toLowerCase()?.includes('network')) msg = 'Network error: Unable to reach GitHub.'; else if (e?.message) msg = `Failed to sync org metrics: ${e.message}`;

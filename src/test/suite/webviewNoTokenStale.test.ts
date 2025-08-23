@@ -71,7 +71,7 @@ const windowStub: any = {
 (global as any).document = documentStub;
 (global as any).window = windowStub;
 (global as any).console = console;
-(global as any).acquireVsCodeApi = () => ({ postMessage: (_: any) => { /* noop */ } });
+(global as any).acquireVsCodeApi = () => ({ postMessage: () => { /* noop */ } });
 
 suite('Webview stale state (no token)', () => {
     test('adds summary-error and unavailable message', () => {
@@ -82,10 +82,10 @@ suite('Webview stale state (no token)', () => {
         eval(code);
         assert.ok(messageHandler, 'Expected message handler registered');
         const config = { mode: 'personal', org: '', hasSecurePat: false, residualPlaintext: false, noTokenStaleMessage: 'Awaiting secure token for personal spend updates.' };
-        messageHandler!({ data: { type: 'config', config } });
+        messageHandler({ data: { type: 'config', config } });
         assert.ok(summary.classList.contains('summary-error'), 'summary-error class expected on summary');
         const unavailable = findById('summary-unavailable');
         assert.ok(unavailable, 'Expected summary-unavailable element');
-        assert.match(unavailable!.textContent, /Awaiting secure token/i, 'Expected awaiting token message');
+        assert.match(unavailable.textContent, /Awaiting secure token/i, 'Expected awaiting token message');
     });
 });

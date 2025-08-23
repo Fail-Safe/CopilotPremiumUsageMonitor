@@ -10,7 +10,7 @@ suite('Coverage & Org metrics parsing', () => {
         const id = 'fail-safe.copilot-premium-usage-monitor';
         const ext = vscode.extensions.getExtension(id)!;
         await ext.activate();
-        return ext.exports as any;
+        return ext.exports;
     }
 
     test('writes coverage artifact when CPUM_COVERAGE_DIR set and coverage present', async () => {
@@ -31,8 +31,8 @@ suite('Coverage & Org metrics parsing', () => {
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'ORG_TOKEN', vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', 'acme', vscode.ConfigurationTarget.Global);
         api._test_resetPostedMessages();
-        api._test_setOctokitFactory((_auth?: string) => ({
-            request: async (route: string) => {
+        api._test_setOctokitFactory(() => ({
+            request: (route: string) => {
                 if (route === 'GET /orgs/{org}/copilot/metrics') {
                     return {
                         data: [
@@ -43,7 +43,7 @@ suite('Coverage & Org metrics parsing', () => {
                 }
                 if (route === 'GET /user') return { data: { login: 'tester' } };
                 throw new Error('Unexpected route ' + route);
-            }, paginate: async () => []
+            }, paginate: () => []
         }));
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
         await new Promise(r => setTimeout(r, 70));

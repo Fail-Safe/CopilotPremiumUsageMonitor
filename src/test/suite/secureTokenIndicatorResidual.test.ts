@@ -19,7 +19,7 @@ suite('Secure token indicator (residual plaintext)', () => {
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'legacy_plain_token', vscode.ConfigurationTarget.Global);
         // Stub quick pick for migration (choose No / keep plaintext copy)
         const origQP = (vscode.window.showQuickPick as any);
-        (vscode.window.showQuickPick as any) = async () => 'No (keep for now)';
+        (vscode.window.showQuickPick as any) = () => Promise.resolve('No (keep for now)');
         try {
             await vscode.commands.executeCommand('copilotPremiumUsageMonitor.migrateToken');
         } finally {

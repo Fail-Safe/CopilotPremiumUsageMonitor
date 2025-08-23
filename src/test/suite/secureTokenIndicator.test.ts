@@ -18,7 +18,7 @@ suite('Secure token indicator', () => {
         api._test_closePanel?.();
         // Stub input for secure token command
         const orig = (vscode.window.showInputBox as any);
-        (vscode.window.showInputBox as any) = async () => 'indicator_token_123';
+        (vscode.window.showInputBox as any) = () => Promise.resolve('indicator_token_123');
         try {
             await vscode.commands.executeCommand('copilotPremiumUsageMonitor.setTokenSecure');
         } finally {

@@ -6,7 +6,7 @@ suite('Status bar error icon variants', () => {
         const id = 'fail-safe.copilot-premium-usage-monitor';
         const ext = vscode.extensions.getExtension(id)!;
         await ext.activate();
-        return ext.exports as any;
+        return ext.exports;
     }
 
     test('404 error maps to question icon', async () => {

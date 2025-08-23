@@ -15,7 +15,7 @@ export interface StoredTokenInfo {
 export async function readStoredToken(context: vscode.ExtensionContext): Promise<StoredTokenInfo> {
     let secret: string | undefined; let legacy: string | undefined;
     try { secret = await context.secrets.get(SECRET_KEY) || undefined; } catch { /* ignore */ }
-    try { const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); legacy = (cfg.get('token') as string | undefined)?.trim(); } catch { /* ignore */ }
+    try { const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); legacy = (cfg.get('token'))?.trim(); } catch { /* ignore */ }
     if (legacy && secret && legacy !== secret) {
         // Divergence: favor plaintext source so UI can prompt user to clear/migrate and tests expecting settings precedence pass
         return { token: legacy, source: 'settings' };
@@ -41,7 +41,7 @@ export async function clearToken(context: vscode.ExtensionContext): Promise<void
  */
 export async function migrateSettingToken(context: vscode.ExtensionContext, removeSetting: boolean): Promise<boolean> {
     const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-    const val = (cfg.get('token') as string | undefined)?.trim();
+    const val = (cfg.get('token'))?.trim();
     if (!val) return false;
     const current = await context.secrets.get(SECRET_KEY);
     if (current === val) return false; // nothing new

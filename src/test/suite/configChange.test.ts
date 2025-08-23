@@ -6,8 +6,8 @@ suite('Config reactions', () => {
         const id = 'fail-safe.copilot-premium-usage-monitor';
         const ext = vscode.extensions.getExtension(id);
         assert.ok(ext, 'Extension not found');
-        await ext!.activate();
-        const api: any = ext!.exports;
+        await ext.activate();
+        const api: any = ext.exports;
         await api._test_setSpendAndUpdate?.(1, 10);
         // Ensure no residual error state which would suppress override icon
         try { api._test_clearLastError?.(); } catch { /* noop */ }
@@ -28,8 +28,8 @@ suite('Config reactions', () => {
         const id = 'fail-safe.copilot-premium-usage-monitor';
         const ext = vscode.extensions.getExtension(id);
         assert.ok(ext, 'Extension not found');
-        await ext!.activate();
-        const api: any = ext!.exports;
+        await ext.activate();
+        const api: any = ext.exports;
         await api._test_setSpendAndUpdate?.(2, 10);
         const before = api._test_getStatusBarText?.();
         assert.ok(before);

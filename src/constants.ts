@@ -8,7 +8,7 @@ function readDefault(key: string, fallback: number): number {
         // Extension ID is <publisher>.<name>
         const ext = vscode.extensions.getExtension('fail-safe.copilot-premium-usage-monitor');
         const props = (ext?.packageJSON?.contributes?.configuration?.properties) || {};
-        const node = (props as any)[key];
+        const node = (props)[key];
         const val = node?.default;
         const n = Number(val);
         return Number.isFinite(n) ? n : fallback;

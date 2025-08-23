@@ -14,7 +14,7 @@ async function activateWithMode(mode: string, org?: string) {
     return { api, ext };
 }
 
-test.beforeEach(async () => {
+void test.beforeEach(async () => {
     const ext = vscode.extensions.getExtension<any>(EXT_ID);
     if (ext && ext.isActive) {
         const api: any = ext.exports;
@@ -24,7 +24,7 @@ test.beforeEach(async () => {
 
 // We cannot directly assert a toast; instead we verify the one-time flag stored in globalState is set when criteria met.
 
-test('no-token activation hint appears after opening panel (mode=personal)', async () => {
+void test('no-token activation hint appears after opening panel (mode=personal)', async () => {
     const { ext } = await activateWithMode('personal');
     const api: any = ext.exports;
     // Extra defensive clear in case secret existed from previous suites
@@ -47,7 +47,7 @@ test('no-token activation hint appears after opening panel (mode=personal)', asy
 
 // Edge case: auto mode with org configured should NOT show hint.
 
-test('no-token activation does not hint in auto mode with org present', async () => {
+void test('no-token activation does not hint in auto mode with org present', async () => {
     const { ext } = await activateWithMode('auto', 'someOrgName');
     const api: any = ext.exports;
     api._test_resetPostedMessages?.();

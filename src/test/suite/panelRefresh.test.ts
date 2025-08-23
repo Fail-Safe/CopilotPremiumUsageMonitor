@@ -6,18 +6,18 @@ suite('Panel refresh message paths (personal)', () => {
         const id = 'fail-safe.copilot-premium-usage-monitor';
         const ext = vscode.extensions.getExtension(id)!;
         await ext.activate();
-        return ext.exports as any;
+        return ext.exports;
     }
 
     test('refresh personal success updates spend & clears stale', async () => {
         const api = await activate();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'TEST_TOKEN', vscode.ConfigurationTarget.Global);
         api._test_setOctokitFactory(() => ({
-            request: async (route: string) => {
+            request: (route: string) => {
                 if (route === 'GET /user') return { data: { login: 'tester' } };
                 if (route.startsWith('GET /users/')) return { data: { usageItems: [{ product: 'Copilot', sku: 'copilot-premium-request', netAmount: 3.5, quantity: 7 }] } };
                 throw new Error('Unexpected route ' + route);
-            }, paginate: async () => []
+            }, paginate: () => []
         }));
         await api._test_refreshPersonal();
         // Poll until status reflects updated spend (timing can vary on CI)
@@ -31,11 +31,11 @@ suite('Panel refresh message paths (personal)', () => {
         const api = await activate();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'TEST_TOKEN_2', vscode.ConfigurationTarget.Global);
         api._test_setOctokitFactory(() => ({
-            request: async (route: string) => {
+            request: (route: string) => {
                 if (route === 'GET /user') return { data: { login: 'tester' } };
                 if (route.startsWith('GET /users/')) { const err: any = new Error('Not Found'); err.status = 404; throw err; }
                 throw new Error('Unexpected route ' + route);
-            }, paginate: async () => []
+            }, paginate: () => []
         }));
         await api._test_refreshPersonal();
         let err: string | undefined; const start = Date.now();

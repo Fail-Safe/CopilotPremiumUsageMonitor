@@ -7,7 +7,7 @@ suite('High value behaviors', () => {
         const id = 'fail-safe.copilot-premium-usage-monitor';
         const ext = vscode.extensions.getExtension(id)!;
         await ext.activate();
-        return ext.exports as any;
+        return ext.exports;
     }
 
     test('threshold coloring transitions (warn/danger) apply expected theme keys', async () => {

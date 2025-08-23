@@ -6,7 +6,7 @@ suite('Panel message paths batch1', () => {
         const id = 'fail-safe.copilot-premium-usage-monitor';
         const ext = vscode.extensions.getExtension(id)!;
         await ext.activate();
-        return ext.exports as any;
+        return ext.exports;
     }
 
     test('getConfig merges legacy settings and posts config + error replay', async () => {
@@ -90,20 +90,20 @@ suite('Panel message paths batch1', () => {
         const api = await activate();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'R_TOKEN', vscode.ConfigurationTarget.Global);
         api._test_setOctokitFactory(() => ({
-            request: async (route: string) => {
+            request: (route: string) => {
                 if (route === 'GET /user') return { data: { login: 'tester' } };
                 if (route.startsWith('GET /users/')) return { data: { usageItems: [{ product: 'Copilot', netAmount: 1.25, quantity: 2, sku: 'copilot' }] } };
                 throw new Error('Unexpected route ' + route);
-            }, paginate: async () => []
+            }, paginate: () => []
         }));
         await api._test_refreshPersonal();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', 'demo-org', vscode.ConfigurationTarget.Global);
         api._test_setOctokitFactory(() => ({
-            request: async (route: string) => {
+            request: (route: string) => {
                 if (route === 'GET /orgs/{org}/copilot/metrics') { const err: any = new Error('Org metrics endpoint returned 404.'); err.status = 404; throw err; }
                 if (route === 'GET /user') return { data: { login: 'tester' } };
                 throw new Error('Unexpected route ' + route);
-            }, paginate: async () => []
+            }, paginate: () => []
         }));
         api._test_clearLastError?.();
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
@@ -118,11 +118,11 @@ suite('Panel message paths batch1', () => {
         const api = await activate();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'P_TOKEN', vscode.ConfigurationTarget.Global);
         api._test_setOctokitFactory(() => ({
-            request: async (route: string) => {
+            request: (route: string) => {
                 if (route === 'GET /user') return { data: { login: 'tester' } };
                 if (route.startsWith('GET /users/')) { const err: any = new Error('Permission denied'); err.status = 403; throw err; }
                 throw new Error('Unexpected route ' + route);
-            }, paginate: async () => []
+            }, paginate: () => []
         }));
         await api._test_refreshPersonal();
         const err = api._test_getLastError();
