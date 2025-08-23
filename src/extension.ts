@@ -1154,9 +1154,12 @@ export async function _test_refreshPersonal() {
 }
 
 export async function _test_refreshOrg() {
-	const token = await getGitHubToken();
+	let token = await getGitHubToken();
 	const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-	const org = trimmedSetting(cfg, 'org');
+	let org = trimmedSetting(cfg, 'org');
+	// Lightweight retries to absorb configuration propagation lag on Linux CI
+	if (!token) { try { await new Promise(r => setTimeout(r, 50)); token = await getGitHubToken(); } catch { /* noop */ } }
+	if (!org) { try { await new Promise(r => setTimeout(r, 50)); org = trimmedSetting(vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'), 'org'); } catch { /* noop */ } }
 	if (!token || !org || !extCtx) return;
 	try {
 		const metrics = await fetchOrgCopilotMetrics(org, token, {});
