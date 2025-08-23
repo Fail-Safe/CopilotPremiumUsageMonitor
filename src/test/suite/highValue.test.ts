@@ -12,7 +12,7 @@ suite('High value behaviors', () => {
 
     test('threshold coloring transitions (warn/danger) apply expected theme keys', async () => {
         const api = await activateWithEnv();
-    await api._test_clearLastError?.();
+        await api._test_clearLastError?.();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('useThemeStatusColor', false, vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('warnAtPercent', 50, vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('dangerAtPercent', 75, vscode.ConfigurationTarget.Global);
@@ -39,11 +39,11 @@ suite('High value behaviors', () => {
 
     test('stale indicator appears then clears after refresh', async () => {
         const api = await activateWithEnv();
-    await api._test_setLastError('network timeout');
+        await api._test_setLastError('network timeout');
         api._test_forceStatusBarUpdate();
         const withStale = api._test_getStatusBarText();
         assert.ok(/\[stale\]/.test(withStale || ''), 'Expected stale indication in status text');
-    await api._test_clearLastError();
+        await api._test_clearLastError();
         const refreshed = api._test_getStatusBarText();
         assert.ok(!/\[stale\]/.test(refreshed || ''), 'Stale tag should be cleared');
     });

@@ -36,7 +36,7 @@ let _octokitModule: OctokitModule | undefined;
 let _testOctokitFactory: ((auth?: string) => any) | undefined;
 const noop = () => { /* intentional */ };
 async function getOctokit(auth?: string) {
-	if (_testOctokitFactory) { try { return _testOctokitFactory(auth); } catch (e) { noop(); } }
+	if (_testOctokitFactory) { try { return _testOctokitFactory(auth); } catch { noop(); } }
 	if (!_octokitModule) { _octokitModule = await import('@octokit/rest'); }
 	const { Octokit } = _octokitModule;
 	return new Octokit({ auth, request: { headers: { 'X-GitHub-Api-Version': '2022-11-28' } } });
@@ -402,7 +402,7 @@ function maybeDumpExtensionHostCoverage() {
 			const file = path.join(dir, 'extension-host-final.json');
 			fs.writeFileSync(file, JSON.stringify(cov), 'utf8');
 		}
-	} catch (e) { noop(); }
+	} catch { noop(); }
 }
 
 export function activate(context: vscode.ExtensionContext) {

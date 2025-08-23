@@ -3,8 +3,8 @@
 // Provide a minimal vscode stub for pure usage; extension host will already have vscode global/module.
 // Avoid dynamic require/import to satisfy lint and keep unit tests pure.
 // Functions that need vscode guard their calls in try/catch.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let vscode: any = undefined;
+// (Deliberately using any; acceptable in this isolated module for optional VS Code dependency)
+let vscode: any = undefined; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 // Explicit token state machine to replace scattered heuristics.
 // Windows (ms) for transitional assumptions (tuned to cover test race windows without being excessive)

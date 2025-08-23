@@ -25,7 +25,7 @@ suite('Status bar last attempt line', () => {
         api._test_setLastError(failMsg);
         // Force an update after marking error (attempt timestamp set via helper path)
         api._test_forceStatusBarUpdate();
-        const md = (vscode.window as any).activeTextEditor; // not accessible; instead rely on tooltip regen logic by re-calling update
+        // (Tooltip not directly accessible in tests; relying on internal state instead)
         // We can't directly read tooltip; instead assert that last attempt global state differs from last success and internal formatting path executed by checking globalState keys.
         const lastAttempt = vscode.extensions.getExtension<any>(EXT_ID)!.exports?.extCtx?.globalState?.get?.('copilotPremiumUsageMonitor.lastSyncAttempt');
         // Fallback: read through command execution scope (not exposed). Use heuristic: attempt timestamp should be >= previous success.
