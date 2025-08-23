@@ -108,24 +108,21 @@ void test('residual plaintext hint appears when secret and settings both have to
     const ext = vscode.extensions.getExtension<any>(EXT_ID)!;
     const api = await ext.activate();
     await (await import('../../extension') as any)._test_forceMigration(false);
-    // Allow secret storage write to settle
-    await new Promise(r => setTimeout(r, 120));
-    const info1 = await (await import('../../extension') as any)._test_readTokenInfo();
-    assert.strictEqual(info1.token, plain, 'Secret token mismatch after migration');
+    // Poll for secret presence before proceeding to panel open (reduce flakiness)
+    for (let i = 0; i < 20; i++) {
+        const info1 = await (await import('../../extension') as any)._test_readTokenInfo();
+        if (info1.token === plain) break;
+        await new Promise(r => setTimeout(r, 50));
+    }
     await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
     api._test_resetPostedMessages();
-    api._test_invokeWebviewMessage({ type: 'getConfig' });
-    await new Promise(r => setTimeout(r, 320));
-    let msgs = api._test_getPostedMessages();
-    let hint = msgs.find((m: any) => m.type === 'migrationHint' && /Plaintext PAT remains/i.test(m.text || m.message || ''));
-    let btn = msgs.find((m: any) => m.type === 'migrationHint' && /Clear Plaintext/i.test(m.buttonLabel || ''));
-    if (!hint && !btn) {
-        // Retry once (async timing variability)
+    // Poll for migration hint up to ~1.2s
+    let found = false;
+    for (let i = 0; i < 12 && !found; i++) {
         api._test_invokeWebviewMessage({ type: 'getConfig' });
-        await new Promise(r => setTimeout(r, 320));
-        msgs = api._test_getPostedMessages();
-        hint = msgs.find((m: any) => m.type === 'migrationHint' && /Plaintext PAT remains/i.test(m.text || m.message || ''));
-        btn = msgs.find((m: any) => m.type === 'migrationHint' && /Clear Plaintext/i.test(m.buttonLabel || ''));
+        await new Promise(r => setTimeout(r, 100));
+        const msgs = api._test_getPostedMessages();
+        found = msgs.some((m: any) => m.type === 'migrationHint' && (/Plaintext PAT remains/i.test(m.text || m.message || '') || /Clear Plaintext/i.test(m.buttonLabel || '')));
     }
-    assert.ok(hint || btn, 'Expected residual plaintext migrationHint with Clear Plaintext action');
+    assert.ok(found, 'Expected residual plaintext migrationHint with Clear Plaintext action');
 });

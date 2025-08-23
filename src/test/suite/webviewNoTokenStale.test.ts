@@ -78,7 +78,6 @@ suite('Webview stale state (no token)', () => {
         const webviewJsPath = path.resolve(__dirname, '../../../media/webview.js');
         const code = fs.readFileSync(webviewJsPath, 'utf8');
         // Evaluate webview script (registers message handler)
-        // eslint-disable-next-line no-eval
         eval(code);
         assert.ok(messageHandler, 'Expected message handler registered');
         const config = { mode: 'personal', org: '', hasSecurePat: false, residualPlaintext: false, noTokenStaleMessage: 'Awaiting secure token for personal spend updates.' };

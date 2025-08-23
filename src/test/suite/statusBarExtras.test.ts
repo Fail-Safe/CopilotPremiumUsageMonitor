@@ -11,13 +11,16 @@ suite('Status bar extra branches', () => {
     }
 
     test('applies green color when theme color disabled and shows last sync timestamp logic', async () => {
-        const api = await activate();
+        const api = await activate({ CPUM_TEST_DISABLE_TIMERS: '1' });
+        // Ensure no error state present
+        await api._test_clearLastError();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('useThemeStatusColor', false, vscode.ConfigurationTarget.Global);
         await api._test_setSpendAndUpdate(10, 100); // 10%
         api._test_setLastSyncTimestamp(Date.now());
+        await new Promise(r => setTimeout(r, 80));
         api._test_forceStatusBarUpdate();
         const color = api._test_getStatusBarColor();
-        assert.ok(color === 'charts.green', 'Expected green color when theme status color disabled and under thresholds');
+        assert.strictEqual(color, 'charts.green', `Expected green color when theme status color disabled and under thresholds (got ${color})`);
     });
 
     test('initStatusBar error path logs message without throwing', async () => {

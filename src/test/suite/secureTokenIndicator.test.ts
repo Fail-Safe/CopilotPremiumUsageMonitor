@@ -31,7 +31,6 @@ suite('Secure token indicator', () => {
         let cfg: any | undefined; let attempts = 0;
         while (attempts < 18) { // up to ~1.1s (18 * ~60ms)
             api._test_invokeWebviewMessage?.({ type: 'getConfig' });
-            // eslint-disable-next-line no-await-in-loop
             await new Promise(r => setTimeout(r, 60));
             const msgs = api._test_getPostedMessages?.() || [];
             cfg = msgs.slice().reverse().find((m: any) => m.type === 'config' && m.config?.securePatOnly !== undefined);

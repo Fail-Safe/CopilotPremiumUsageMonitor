@@ -1,7 +1,10 @@
 // vscode import only needed for waitForTokenState helper; delay requiring to allow pure usage in unit tests without VS Code env
 // (Unit tests that need only deriveTokenState / record* APIs can proceed without vscode module present.)
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-let vscode: any; try { vscode = require('vscode'); } catch { vscode = undefined; }
+// Provide a minimal vscode stub for pure usage; extension host will already have vscode global/module.
+// Avoid dynamic require/import to satisfy lint and keep unit tests pure.
+// Functions that need vscode guard their calls in try/catch.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let vscode: any = undefined;
 
 // Explicit token state machine to replace scattered heuristics.
 // Windows (ms) for transitional assumptions (tuned to cover test race windows without being excessive)

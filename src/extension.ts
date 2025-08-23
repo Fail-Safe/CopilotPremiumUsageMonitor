@@ -21,6 +21,7 @@ let _test_lastStatusBarText: string | undefined; // test cache
 let _test_postedMessages: any[] = []; // test capture of webview postMessage payloads
 let _test_helpCount = 0; // test: number of help invocations
 let _test_lastHelpInvoked: number | undefined; // test: timestamp of last help invocation
+let _test_lastTooltipMarkdown: string | undefined; // test: capture last tooltip markdown
 // In-memory fast flag to reflect most recent secret write/clear immediately (bridges secret storage latency in tests)
 let lastSetTokenValue: string | undefined; // optimistic secure presence immediately after set/migrate
 let pendingResidualHintUntil = 0; // one-shot window to show residual hint if panel opens after a keep-migration
@@ -165,6 +166,10 @@ class UsagePanel {
 				case 'dismissFirstRun': { await this.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', true); try { await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', true, vscode.ConfigurationTarget.Global); } catch { noop(); } break; }
 				case 'migrateToken': {
 					const result = await performExplicitMigration(extCtx!, true);
+					// After an explicit migration keep, force a short delay to allow secret propagation so getConfig sees hasSecurePat
+					if (result?.migrated && !result.removedLegacy) {
+						try { if (extCtx) await waitForSecret(extCtx, 50, 30); } catch { /* noop */ }
+					}
 					if (result?.migrated) {
 						const successMsg = result.removedLegacy ? localize('cpum.migration.hint.migratedRemoved', 'Token migrated and plaintext setting cleared.') : localize('cpum.migration.hint.migrated', 'Token migrated to secure storage.');
 						this.post({ type: 'migrationComplete', message: successMsg, removedLegacy: result.removedLegacy });
@@ -187,6 +192,7 @@ class UsagePanel {
 						const m = 'Authentication error: Please sign in or provide a valid PAT.';
 						this.post({ type: 'error', message: m });
 						await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', m);
+						try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', Date.now()); } catch { /* noop */ }
 						void vscode.window.showErrorMessage(m);
 						maybeAutoOpenLog();
 						updateStatusBar();
@@ -204,6 +210,7 @@ class UsagePanel {
 							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { noop(); }
 							// Also clear any lingering error indicator by posting clearError
 							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { noop(); }
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', Date.now()); } catch { /* noop */ }
 							this.post({ type: 'metrics', metrics });
 							this.post({ type: 'clearError' });
 							updateStatusBar();
@@ -218,6 +225,7 @@ class UsagePanel {
 							if (!allowFallback) {
 								this.post({ type: 'error', message: msg });
 								await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg);
+								try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', Date.now()); } catch { /* noop */ }
 								void vscode.window.showErrorMessage(msg);
 								maybeAutoOpenLog();
 								updateStatusBar();
@@ -231,6 +239,7 @@ class UsagePanel {
 							const now = new Date(); const year = now.getUTCFullYear(); const month = now.getUTCMonth() + 1; const billing = await fetchUserBillingUsage(login, token, { year, month });
 							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { noop(); }
 							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { noop(); }
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', Date.now()); } catch { /* noop */ }
 							await this.setSpend(billing.totalNetAmount);
 							this.post({ type: 'billing', billing });
 							this.post({ type: 'clearError' });
@@ -244,6 +253,7 @@ class UsagePanel {
 							else if (e?.message) msg = `Failed to sync usage: ${e.message}`;
 							this.post({ type: 'error', message: msg });
 							await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg);
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', Date.now()); } catch { /* noop */ }
 							void vscode.window.showErrorMessage(msg);
 							maybeAutoOpenLog();
 							updateStatusBar();
@@ -481,8 +491,19 @@ export function activate(context: vscode.ExtensionContext) {
 	}));
 	context.subscriptions.push(openPanel, signIn, configureOrg, manage, showLogs, migrateTokenCmd, setTokenSecure, clearTokenSecure, enableFirstRunNotice);
 	initStatusBar(context); updateStatusBar();
-	// Avoid background refresh timers during tests to minimize race conditions affecting assertions.
-	if (!process.env.VSCODE_PID) { startAutoRefresh(); startRelativeTimeTicker(); }
+	// Start background timers (auto refresh + relative time). Tests can disable via env.
+	if (process.env.CPUM_TEST_DISABLE_TIMERS !== '1') { startAutoRefresh(); startRelativeTimeTicker(); }
+	// Adjust relative time update frequency based on window focus (hover auto-update improvement)
+	try {
+		vscode.window.onDidChangeWindowState((st) => {
+			if (process.env.CPUM_TEST_DISABLE_TIMERS === '1') return; // skip in tests
+			if (st.focused) {
+				setRelativeTimeInterval(10000); // 10s while focused (improves tooltip freshness)
+			} else {
+				setRelativeTimeInterval(30000); // back to 30s when unfocused
+			}
+		});
+	} catch { /* noop */ }
 	// Show one-time toast if no secure/plaintext token and user is in a personal-spend context
 	void (async () => {
 		try {
@@ -507,7 +528,18 @@ export function activate(context: vscode.ExtensionContext) {
 	if (process.env.CPUM_TEST_ENABLE_LOG_BUFFER) { try { getLog(); } catch { /* noop */ } }
 	maybeDumpExtensionHostCoverage();
 	return {
-		_test_getStatusBarText, _test_forceStatusBarUpdate, _test_setSpendAndUpdate, _test_getStatusBarColor, _test_setLastSyncTimestamp, _test_getRefreshIntervalId, _test_getLogBuffer, _test_clearLastError, _test_setLastError, _test_getRefreshRestartCount, _test_getLogAutoOpened, _test_getSpend, _test_getLastError, _test_getPostedMessages, _test_resetPostedMessages, _test_resetFirstRun, _test_closePanel, _test_setIconOverrideWarning, _test_getHelpCount, _test_getLastHelpInvoked, _test_forceCoverageDump: () => { try { maybeDumpExtensionHostCoverage(); } catch { /* noop */ } }, _test_setOctokitFactory: (fn: any) => { _testOctokitFactory = fn; }, _test_invokeWebviewMessage: (msg: any) => { try { (UsagePanel as any)._test_invokeMessage(msg); } catch { /* noop */ } }, _test_refreshPersonal, _test_refreshOrg,
+		_test_getStatusBarText, _test_forceStatusBarUpdate, _test_setSpendAndUpdate, _test_getStatusBarColor, _test_setLastSyncTimestamp, _test_setLastSyncAttempt, _test_getRefreshIntervalId, _test_getAttemptMeta, _test_getLogBuffer, _test_clearLastError, _test_setLastError, _test_getRefreshRestartCount, _test_getLogAutoOpened, _test_getSpend, _test_getLastError, _test_getPostedMessages, _test_resetPostedMessages, _test_resetFirstRun, _test_closePanel, _test_setIconOverrideWarning, _test_getHelpCount, _test_getLastHelpInvoked, _test_forceCoverageDump: () => { try { maybeDumpExtensionHostCoverage(); } catch { /* noop */ } }, _test_setOctokitFactory: (fn: any) => { _testOctokitFactory = fn; }, _test_invokeWebviewMessage: (msg: any) => { try { (UsagePanel as any)._test_invokeMessage(msg); } catch { /* noop */ } }, _test_refreshPersonal, _test_refreshOrg,
+		// Simulate window focus state changes (for testing dynamic relative interval)
+		_test_simulateWindowFocus: (focused: boolean) => {
+			try {
+				// VS Code does not expose a public fire; tests can rely on internal listeners (non-API) if present.
+				const evt: any = (vscode.window as any).onDidChangeWindowState;
+				const listeners: any[] = evt?._listeners || evt?._disposed ? [] : evt?._listeners;
+				if (Array.isArray(listeners) && listeners.length) {
+					for (const l of listeners) { try { l({ focused }); } catch { /* noop */ } }
+				}
+			} catch { /* noop */ }
+		},
 		// Reset secret storage and heuristics accumulator for tests
 		_test_clearSecretToken: async () => {
 			if (extCtx) {
@@ -575,6 +607,13 @@ function maybeAutoOpenLog() {
 let autoRefreshTimer: NodeJS.Timeout | undefined;
 let autoRefreshRestartCount = 0; // test helper counter
 let relativeTimeTimer: NodeJS.Timeout | undefined;
+let relativeTimeIntervalMs = 30000; // default 30s cadence
+function setRelativeTimeInterval(ms: number) {
+	if (!Number.isFinite(ms) || ms < 1000) ms = 1000; // enforce 1s min
+	if (ms === relativeTimeIntervalMs) return;
+	relativeTimeIntervalMs = ms;
+	startRelativeTimeTicker(); // restart with new cadence
+}
 // Track last posted token state to optionally suppress redundant config posts (future use)
 // let lastPostedTokenState: { hasSecurePat: boolean; residualPlaintext: boolean } | undefined; // unused (future suppression logic)
 
@@ -736,35 +775,70 @@ function updateStatusBar() {
 		statusItem.color = derivedColor;
 		const md = new vscode.MarkdownString(undefined, true);
 		md.isTrusted = true;
-		md.appendMarkdown(`**${localize('cpum.statusbar.title', 'Copilot Premium Usage')}**\n\n`);
-		md.appendMarkdown(`${localize('cpum.statusbar.budget', 'Budget')}: $${budget.toFixed(2)}  |  ${localize('cpum.statusbar.spend', 'Spend')}: $${spend.toFixed(2)}  |  ${localize('cpum.statusbar.used', 'Used')}: ${percent}%`);
+		let _capture = '';
+		function cap(s: string) { _capture += s; md.appendMarkdown(s); }
+		cap(`**${localize('cpum.statusbar.title', 'Copilot Premium Usage')}**\n\n`);
+		cap(`${localize('cpum.statusbar.budget', 'Budget')}: $${budget.toFixed(2)}  |  ${localize('cpum.statusbar.spend', 'Spend')}: $${spend.toFixed(2)}  |  ${localize('cpum.statusbar.used', 'Used')}: ${percent}%`);
 		// Show last (successful) sync timestamp even when stale
 		{
 			const ts = extCtx.globalState.get<number>('copilotPremiumUsageMonitor.lastSyncTimestamp');
-			if (ts) {
-				try {
-					const dt = new Date(ts);
-					const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
-					const offsetMin = dt.getTimezoneOffset();
-					const absMin = Math.abs(offsetMin);
-					const offH = String(Math.floor(absMin / 60)).padStart(2, '0');
-					const offM = String(absMin % 60).padStart(2, '0');
-					const sign = offsetMin <= 0 ? '+' : '-';
-					const offsetStr = `UTC${sign}${offH}:${offM}`;
-					const formatted = new Intl.DateTimeFormat(undefined, {
-						year: 'numeric', month: '2-digit', day: '2-digit',
-						hour: '2-digit', minute: '2-digit', second: '2-digit'
-					}).format(dt);
-					let rel = '';
-					try { rel = formatRelativeTime(dt.getTime()); } catch { /* noop */ }
-					const label = lastError ? localize('cpum.statusbar.lastSuccessfulSync', 'Last successful sync') : localize('cpum.statusbar.lastSync', 'Last sync');
-					// Include timezone offset + IANA zone for clarity (uses tz & offsetStr to avoid unused vars)
-					const tzDisplay = tz ? ` ${tz}` : '';
-					md.appendMarkdown(`\n\n$(sync) ${label}: ${formatted} ${rel ? ` • ${rel}` : ''} (${offsetStr}${tzDisplay})`);
-				} catch { /* noop */ }
+			const attemptTs = extCtx.globalState.get<number>('copilotPremiumUsageMonitor.lastSyncAttempt');
+			const lastErrorForAttempt = extCtx.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
+			const lastErrorStatus = lastErrorForAttempt; // reuse for success label decision
+			function classifyError(msg: string | undefined): { text: string; icon?: string; } | undefined {
+				if (!msg) return undefined;
+				const m = msg.toLowerCase();
+				if (m.includes('network')) return { text: localize('cpum.statusbar.err.network', 'network error'), icon: 'cloud-offline' };
+				if (m.includes('auth') || m.includes('permission') || m.includes('sign in') || m.includes('pat')) return { text: localize('cpum.statusbar.err.auth', 'auth error'), icon: 'key' };
+				if (m.includes('404')) return { text: localize('cpum.statusbar.err.notfound', 'not found'), icon: 'question' };
+				if (m.includes('token')) return { text: localize('cpum.statusbar.err.token', 'token issue'), icon: 'shield' };
+				return { text: localize('cpum.statusbar.err.generic', 'error'), icon: 'warning' };
 			}
+			function appendLine(kind: 'success' | 'attempt', value: number) {
+				const dt = new Date(value);
+				const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+				const offsetMin = dt.getTimezoneOffset();
+				const absMin = Math.abs(offsetMin);
+				const offH = String(Math.floor(absMin / 60)).padStart(2, '0');
+				const offM = String(absMin % 60).padStart(2, '0');
+				const sign = offsetMin <= 0 ? '+' : '-';
+				const offsetStr = `UTC${sign}${offH}:${offM}`;
+				const formatted = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(dt);
+				let rel = '';
+				try { rel = formatRelativeTime(dt.getTime()); } catch { /* noop */ }
+				let label: string;
+				if (kind === 'success') label = lastErrorStatus ? localize('cpum.statusbar.lastSuccessfulSync', 'Last successful sync') : localize('cpum.statusbar.lastSync', 'Last sync');
+				else {
+					label = localize('cpum.statusbar.lastAttempt', 'Last attempt');
+					const classification = classifyError(lastErrorForAttempt);
+					if (classification) {
+						const iconPart = classification.icon ? `$(${classification.icon}) ` : '';
+						label += ` (${iconPart}${classification.text})`;
+					}
+				}
+				const tzDisplay = tz ? ` ${tz}` : '';
+				cap(`\n\n$(sync) ${label}: ${formatted} ${rel ? ` • ${rel}` : ''} (${offsetStr}${tzDisplay})`);
+			}
+			try {
+				if (ts) appendLine('success', ts);
+				// Show "Last attempt" only if:
+				// - there is an attemptTs different from last success, AND
+				// - either no successful sync yet OR at least two refresh intervals have elapsed since last success.
+				if (attemptTs && (!ts || attemptTs !== ts)) {
+					let showAttempt = false;
+					try {
+						const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+						let minutes = Number(cfg.get('refreshIntervalMinutes') ?? 15);
+						if (!isFinite(minutes) || minutes <= 0) minutes = 15;
+						const intervalMs = Math.max(5, Math.floor(minutes)) * 60 * 1000;
+						// Show if no success OR success is older than 2 intervals OR attempt itself is older than 1 interval (stale retry)
+						if (!ts) showAttempt = true; else if ((Date.now() - ts) >= intervalMs * 2) showAttempt = true; else if ((Date.now() - attemptTs) >= intervalMs) showAttempt = true;
+					} catch { /* noop */ }
+					if (showAttempt) appendLine('attempt', attemptTs);
+				}
+			} catch { /* noop */ }
 		}
-		md.appendMarkdown(`\n\n$(gear) ${localize('cpum.statusbar.manageHint', 'Run "Copilot Premium Usage Monitor: Manage" to configure.')}`);
+		cap(`\n\n$(gear) ${localize('cpum.statusbar.manageHint', 'Run "Copilot Premium Usage Monitor: Manage" to configure.')}`);
 		// If the last sync produced an error, surface a stale data notice
 		try {
 			const lastError = extCtx?.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
@@ -776,6 +850,7 @@ function updateStatusBar() {
 			}
 		} catch { /* noop */ }
 		statusItem.tooltip = md;
+		try { _test_lastTooltipMarkdown = _capture; } catch { /* noop */ }
 		statusItem.show();
 	} catch (err) {
 		getLog().appendLine(`[CopilotPremiumUsageMonitor] Error updating status bar: ${err instanceof Error ? err.stack || err.message : String(err)}`);
@@ -827,9 +902,10 @@ function startRelativeTimeTicker() {
 		try {
 			if (!extCtx) return;
 			const ts = extCtx.globalState.get<number>('copilotPremiumUsageMonitor.lastSyncTimestamp');
-			if (ts) updateStatusBar();
+			const attempt = extCtx.globalState.get<number>('copilotPremiumUsageMonitor.lastSyncAttempt');
+			if (ts || attempt) updateStatusBar();
 		} catch { /* noop */ }
-	}, 30000); // 30s cadence
+	}, relativeTimeIntervalMs);
 }
 
 function stopRelativeTimeTicker() {
@@ -859,12 +935,14 @@ async function performAutoRefresh() {
 			const billing = await fetchUserBillingUsage(login, token, { year, month });
 			try { await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); } catch { /* noop */ }
 			try { await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { /* noop */ }
+			try { await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', Date.now()); } catch { /* noop */ }
 			await extCtx!.globalState.update('copilotPremiumUsageMonitor.currentSpend', billing.totalNetAmount);
 			updateStatusBar(); // will drop stale tag if present
 			// After obtaining spend, ensure config reflects secure token presence (avoids stale no-token hint)
 			try { await postFreshConfig(); } catch { /* noop */ }
 		} catch {
 			// ignore in background
+			try { await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', Date.now()); } catch { /* noop */ }
 		}
 	} else {
 		// Org mode: we don't derive spend; optional future: surface a small org metric badge (sidebar removed)
@@ -983,6 +1061,7 @@ export function _test_getStatusBarText(): string | undefined { return _test_last
 export function _test_getStatusBarColor(): string | undefined {
 	try { const c: any = (statusItem as any)?.color; return c?.id || c?._id || (typeof c === 'string' ? c : undefined); } catch { return undefined; }
 }
+export function _test_getLastTooltipMarkdown(): string | undefined { return _test_lastTooltipMarkdown; }
 export function _test_forceStatusBarUpdate() {
 	try {
 		if (extCtx && !statusItem) {
@@ -1001,11 +1080,37 @@ export async function _test_setSpendAndUpdate(spend: number, budget?: number) {
 		updateStatusBar();
 	} catch { /* noop */ }
 }
-export function _test_setLastSyncTimestamp(ts: number) { try { void extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', ts); } catch { /* noop */ } }
+export function _test_setLastSyncTimestamp(ts: number) { try { return extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', ts); } catch { /* noop */ } }
+export function _test_setLastSyncAttempt(ts: number) { try { return extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', ts); } catch { /* noop */ } }
+export function _test_getAttemptMeta() {
+	try {
+		if (!extCtx) return undefined;
+		const ts = extCtx.globalState.get<number>('copilotPremiumUsageMonitor.lastSyncTimestamp');
+		const attemptTs = extCtx.globalState.get<number>('copilotPremiumUsageMonitor.lastSyncAttempt');
+		const err = extCtx.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
+		if (!attemptTs || (ts && attemptTs === ts)) return { show: false };
+		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		let minutes = Number(cfg.get('refreshIntervalMinutes') ?? 15);
+		if (!isFinite(minutes) || minutes <= 0) minutes = 15;
+		const intervalMs = Math.max(5, Math.floor(minutes)) * 60 * 1000;
+		let show = false;
+		if (!ts) show = true; else if ((Date.now() - ts) >= intervalMs * 2) show = true; else if ((Date.now() - attemptTs) >= intervalMs) show = true;
+		let classificationText: string | undefined;
+		if (err) {
+			const m = err.toLowerCase();
+			if (m.includes('network')) classificationText = 'network error';
+			else if (m.includes('auth') || m.includes('permission') || m.includes('sign in') || m.includes('pat')) classificationText = 'auth error';
+			else if (m.includes('404')) classificationText = 'not found';
+			else if (m.includes('token')) classificationText = 'token issue';
+			else classificationText = 'error';
+		}
+		return { show, err, classificationText };
+	} catch { return undefined; }
+}
 export function _test_getRefreshIntervalId(): any { return autoRefreshTimer; }
 export function _test_getLogBuffer(): string[] | undefined { try { getLog(); return (_logChannel as any)?._buffer; } catch { return undefined; } }
-export function _test_clearLastError() { try { void extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); void extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); updateStatusBar(); } catch { /* noop */ } }
-export function _test_setLastError(msg: string) { try { void extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); updateStatusBar(); } catch { /* noop */ } }
+export async function _test_clearLastError() { try { await extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncError', undefined); await extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); updateStatusBar(); } catch { /* noop */ } }
+export async function _test_setLastError(msg: string) { try { await extCtx?.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); updateStatusBar(); } catch { /* noop */ } }
 export function _test_getRefreshRestartCount() { return autoRefreshRestartCount; }
 export function _test_getLogAutoOpened() { return logAutoOpened; }
 export function _test_getSpend() { try { return extCtx?.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend'); } catch { return undefined; } }
