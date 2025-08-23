@@ -107,11 +107,13 @@ suite('Panel message paths batch1', () => {
         }));
         api._test_clearLastError?.();
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
-        await new Promise(r => setTimeout(r, 60));
+    // Allow org setting to propagate and panel constructor async config replay to finish
+    await new Promise(r => setTimeout(r, 120));
         api._test_invokeWebviewMessage({ type: 'refresh', mode: 'auto' });
-        await new Promise(r => setTimeout(r, 150));
-        const err = api._test_getLastError();
-        assert.ok(err && /(org metrics endpoint returned 404|Failed to sync org metrics)/i.test(err), 'Expected org metrics 404 error captured');
+    // Poll up to 1.2s for error state (allows for retry + slower CI scheduling)
+    let err: string | undefined; const start = Date.now();
+    while (Date.now() - start < 1200) { err = api._test_getLastError(); if (err) break; await new Promise(r => setTimeout(r, 60)); }
+    assert.ok(err && /(org metrics endpoint returned 404|Failed to sync org metrics)/i.test(err), 'Expected org metrics 404 error captured');
     });
 
     test('personal refresh error variant mapping 403 -> auth error message', async () => {
