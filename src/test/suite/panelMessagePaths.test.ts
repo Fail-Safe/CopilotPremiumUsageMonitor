@@ -22,9 +22,15 @@ suite('Panel message paths batch1', () => {
         api._test_setLastError('Network error: Unable to reach GitHub.');
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
         api._test_invokeWebviewMessage({ type: 'getConfig' });
-        await new Promise(r => setTimeout(r, 200));
-        const msgs = api._test_getPostedMessages();
-        const cfgMsg = msgs.find((m: any) => m.type === 'config');
+        // Poll for config message with updated budget to avoid race (panel might post initial config before setting flush)
+        let cfgMsg: any | undefined; let attempts = 0; let msgs: any[] = [];
+        while (attempts < 15) { // up to ~450ms
+            msgs = api._test_getPostedMessages();
+            cfgMsg = msgs.find((m: any) => m.type === 'config' && m.config?.budget === 12) || msgs.find((m: any) => m.type === 'config');
+            if (cfgMsg && cfgMsg.config?.budget === 12) break;
+            await new Promise(r => setTimeout(r, 30));
+            attempts++;
+        }
         assert.ok(cfgMsg, 'Expected config message');
         assert.strictEqual(cfgMsg.config.budget, 12, 'Budget mismatch');
         const errReplay = msgs.find((m: any) => m.type === 'error');
@@ -36,16 +42,21 @@ suite('Panel message paths batch1', () => {
         await api._test_resetFirstRun?.();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', false, vscode.ConfigurationTarget.Global);
         api._test_closePanel?.(); // ensure new panel instance so constructor re-runs notice logic
-        api._test_resetPostedMessages();
+        api._test_resetPostedMessages(); // reset BEFORE opening so we don't wipe the one-time notice
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
-        await new Promise(r => setTimeout(r, 80));
-        const firstMsgs = api._test_getPostedMessages();
-        const hadNotice = firstMsgs.some((m: any) => m.type === 'notice');
+        // Poll for notice (race-safe) up to 500ms
+        let hadNotice = false; const start = Date.now();
+        while (Date.now() - start < 500) {
+            const firstMsgs = api._test_getPostedMessages();
+            if (firstMsgs.some((m: any) => m.type === 'notice')) { hadNotice = true; break; }
+            await new Promise(r => setTimeout(r, 40));
+        }
         api._test_invokeWebviewMessage({ type: 'dismissFirstRun' });
-        await new Promise(r => setTimeout(r, 30));
+        await new Promise(r => setTimeout(r, 50));
         api._test_resetPostedMessages();
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel'); // reopen should NOT send notice
-        await new Promise(r => setTimeout(r, 80));
+        // Short wait for any (unexpected) notice dispatch
+        await new Promise(r => setTimeout(r, 120));
         const secondMsgs = api._test_getPostedMessages();
         const noticeAgain = secondMsgs.some((m: any) => m.type === 'notice');
         assert.ok(hadNotice, 'Expected initial notice');

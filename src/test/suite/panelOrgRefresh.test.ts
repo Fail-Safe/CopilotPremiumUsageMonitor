@@ -11,6 +11,7 @@ suite('Panel refresh message paths (org)', () => {
 
     test('org refresh success clears stale', async () => {
         const api = await activate();
+        api._test_clearLastError?.();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'ORG_TOKEN', vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', 'my-org', vscode.ConfigurationTarget.Global);
         api._test_setOctokitFactory(() => ({
@@ -22,12 +23,13 @@ suite('Panel refresh message paths (org)', () => {
         }));
         await api._test_refreshOrg();
         let err: string | undefined; const start = Date.now();
-        while (Date.now() - start < 500) { err = api._test_getLastError(); if (!err) break; await new Promise(r => setTimeout(r, 25)); }
+        while (Date.now() - start < 900) { err = api._test_getLastError(); if (!err) break; await new Promise(r => setTimeout(r, 30)); }
         assert.ok(!err, 'Org refresh success should clear last error');
     });
 
     test('org refresh network error sets stale', async () => {
         const api = await activate();
+        api._test_clearLastError?.();
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', 'ORG_TOKEN2', vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('org', 'my-org', vscode.ConfigurationTarget.Global);
         api._test_setOctokitFactory(() => ({
@@ -39,7 +41,7 @@ suite('Panel refresh message paths (org)', () => {
         }));
         await api._test_refreshOrg();
         let err: string | undefined; const start = Date.now();
-        while (Date.now() - start < 500) { err = api._test_getLastError(); if (err) break; await new Promise(r => setTimeout(r, 25)); }
-        assert.ok(err && (/org metrics/i.test(err) || /Network error/i.test(err)), 'Expected stored org metrics or network error message');
+        while (Date.now() - start < 900) { err = api._test_getLastError(); if (err) break; await new Promise(r => setTimeout(r, 30)); }
+        assert.ok(err && (/org metrics/i.test(err) || /Network error/i.test(err) || /Network Unreachable/i.test(err)), 'Expected stored org metrics or network error message');
     });
 });

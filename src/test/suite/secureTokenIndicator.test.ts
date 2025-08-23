@@ -27,18 +27,19 @@ suite('Secure token indicator', () => {
         // Open panel and request config
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
         api._test_resetPostedMessages?.();
-        // Poll a few times to allow secret storage propagation
-        let cfg: any | undefined;
-        for (let i = 0; i < 5 && !cfg; i++) {
+        // Poll (tolerate possible transient legacy detection until suppress window applied)
+        let cfg: any | undefined; let attempts = 0;
+        while (attempts < 18) { // up to ~1.1s (18 * ~60ms)
             api._test_invokeWebviewMessage?.({ type: 'getConfig' });
             // eslint-disable-next-line no-await-in-loop
-            await new Promise(r => setTimeout(r, 120));
+            await new Promise(r => setTimeout(r, 60));
             const msgs = api._test_getPostedMessages?.() || [];
             cfg = msgs.slice().reverse().find((m: any) => m.type === 'config' && m.config?.securePatOnly !== undefined);
-            if (cfg?.config?.securePatOnly) break;
+            if (cfg?.config?.securePatOnly === true) break;
+            attempts++;
         }
         assert.ok(cfg, 'Expected config message');
-        assert.strictEqual(cfg.config.securePatOnly, true, 'Expected securePatOnly true');
+        assert.strictEqual(cfg.config.securePatOnly, true, 'Expected securePatOnly true after propagation window');
         assert.strictEqual(typeof cfg.config.secureTokenText, 'string');
         assert.ok(/Secure token set/i.test(cfg.config.secureTokenText), 'Expected localized secureTokenText default');
         assert.strictEqual(typeof cfg.config.secureTokenTitle, 'string');
