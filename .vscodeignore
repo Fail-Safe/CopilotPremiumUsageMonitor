@@ -30,8 +30,5 @@ out/**
 !LICENSE
 !SECURITY.md
 
-# Exclude changelog from VSIX (viewable on Marketplace)
-CHANGELOG.md
-
 # Exclude all source maps (can re-enable for debugging)
 **/*.map
