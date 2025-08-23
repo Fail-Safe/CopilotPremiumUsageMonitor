@@ -392,7 +392,14 @@ async function waitForSecretGone(ctx: vscode.ExtensionContext, attempts = 20, de
 }
 
 // Test hook to drive message handler without an actual webview post
-(UsagePanel as any)._test_invokeMessage = (msg: any) => { try { const p = UsagePanel.currentPanel as any; p?._dispatch && p._dispatch(msg); } catch { /* noop */ } };
+(UsagePanel as any)._test_invokeMessage = (msg: any) => {
+	try {
+		const p = UsagePanel.currentPanel as any;
+		if (p?._dispatch) {
+			p._dispatch(msg);
+		}
+	} catch { /* noop */ }
+};
 
 function maybeDumpExtensionHostCoverage() {
 	try {

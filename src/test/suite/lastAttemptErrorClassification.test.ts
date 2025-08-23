@@ -26,7 +26,6 @@ suite('Last attempt error classification', () => {
         // (Tooltip markdown capture optional; rely on meta classification for assertions)
         // Tooltip capture is optional; assert classification via meta for determinism
         if (!/network error/i.test(meta?.classificationText || '')) {
-            // eslint-disable-next-line no-console
             console.log('DEBUG meta after network error set:', meta, 'rawErr=', meta?.err);
         }
         assert.ok(/network error/i.test(meta?.classificationText || ''), 'Expected network error classification in meta');
