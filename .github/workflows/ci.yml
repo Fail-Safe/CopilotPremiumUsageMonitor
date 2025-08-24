@@ -28,6 +28,7 @@ jobs:
       versions: ${{ steps.set.outputs.versions }}
       current: ${{ steps.set.outputs.current }}
       previous: ${{ steps.set.outputs.previous }}
+      matrix: ${{ steps.set.outputs.matrix }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -55,6 +56,8 @@ jobs:
           echo "current=$CURRENT" >> $GITHUB_OUTPUT
           echo "previous=$PREV" >> $GITHUB_OUTPUT
           echo "Matrix versions: $VERSIONS_JSON"
+          # Compose full matrix JSON object and expose as output
+          echo "matrix={\"node\":[\"20.x\"],\"vscode\":$VERSIONS_JSON}" >> $GITHUB_OUTPUT
 
   build-test:
     name: Lint & Test (Node ${{ matrix.node }}, VS Code ${{ matrix.vscode }})
@@ -64,7 +67,7 @@ jobs:
       PINNED_VERSION: ${{ needs.determine-versions.outputs.current }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(format('{"node":["20.x"],"vscode":{0}}', needs.determine-versions.outputs.versions)) }}
+      matrix: ${{ fromJSON(needs.determine-versions.outputs.matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
