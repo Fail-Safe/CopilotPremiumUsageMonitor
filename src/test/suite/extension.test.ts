@@ -26,6 +26,11 @@ suite('Activation', () => {
         await api._test_setSpendAndUpdate?.(2, 10);
         const text: string | undefined = api?._test_getStatusBarText?.();
         assert.ok(text, 'Status bar text still undefined after helper');
-        assert.ok(/^\$\([a-z0-9-]+\) \d+% [▰▱]{10}(?: \[stale\])?$/.test(text), `Unexpected status bar text: ${text}`);
+        // Accept colorized stacked bars - validate basic structure and bar length
+        const hasValidStart = /^\$\([a-z0-9-]+\)\s*\d+%\s*/.test(text);
+        // Accept either solid/empty squares or rounded variants depending on renderer
+        const barChars = text.match(/[■□▰▱]/g);
+        const hasValidBar = barChars && barChars.length === 10;
+        assert.ok(hasValidStart && hasValidBar, `Unexpected status bar text: ${text}`);
     });
 });

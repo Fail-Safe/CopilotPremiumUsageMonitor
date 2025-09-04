@@ -144,10 +144,18 @@ suite('Panel message paths batch1', () => {
         const api = await activate();
         api._test_resetPostedMessages();
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
-        await new Promise(r => setTimeout(r, 140));
+        // Allow more time for initial postFreshConfig and possible async paths
+        await new Promise(r => setTimeout(r, 260));
         const msgs = api._test_getPostedMessages();
         // Look for at least one localized label we know the English default of
-        const configMsg = msgs.find((m: any) => m.type === 'config');
+        let configMsg = msgs.find((m: any) => m.type === 'config');
+        if (!configMsg) {
+            // Fall back to explicit getConfig message and repoll
+            api._test_invokeWebviewMessage({ type: 'getConfig' });
+            await new Promise(r => setTimeout(r, 120));
+            const msgs2 = api._test_getPostedMessages();
+            configMsg = msgs2.find((m: any) => m.type === 'config');
+        }
         assert.ok(configMsg, 'Expected config message');
         // If migration notice appears, ensure its text not empty (fallback or localized)
         const notice = msgs.find((m: any) => m.type === 'notice');

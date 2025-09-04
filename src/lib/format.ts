@@ -4,7 +4,8 @@ export function computeUsageBar(percent: number, segments = 10) {
     percent = Math.max(0, Math.min(100, Math.round(percent)));
     const pctFraction = percent / 100;
     const filled = Math.round(pctFraction * segments);
-    return '▰'.repeat(filled) + '▱'.repeat(Math.max(0, segments - filled));
+    // Use solid/empty squares which render more consistently across fonts and platforms
+    return '■'.repeat(filled) + '□'.repeat(Math.max(0, segments - filled));
 }
 
 export function formatRelativeTime(fromTs: number, now: number = Date.now()): string {

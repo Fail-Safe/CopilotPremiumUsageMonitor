@@ -1,12 +1,16 @@
 import * as vscode from 'vscode';
 import { computeUsageBar, pickIcon, formatRelativeTime } from './lib/format';
+import { computeIncludedOverageSummary } from './lib/usageUtils';
 import { readStoredToken, migrateSettingToken, writeToken, clearToken, getSecretStorageKey } from './secrets';
 import { deriveTokenState, recordMigrationKeep, recordSecureSetAndLegacyCleared, resetAllTokenStateWindows, debugSnapshot, recordSecureCleared } from './lib/tokenState';
 import { setSecretsLogger, logSecrets } from './secrets_log';
 import { DEFAULT_WARN_AT_PERCENT, DEFAULT_DANGER_AT_PERCENT } from './constants';
+import { CopilotUsageSidebarProvider } from './sidebarProvider';
+import { UsageHistoryManager } from './lib/usageHistory';
 import * as nls from 'vscode-nls';
 import * as fs from 'fs';
 import * as path from 'path';
+import { loadGeneratedPlans, findPlanById, listAvailablePlans, getGeneratedPrice } from './lib/planUtils';
 
 const localize = nls.loadMessageBundle();
 setSecretsLogger((m) => { try { getLog().appendLine(`[secrets] ${m}`); } catch { /* noop */ } });
@@ -16,6 +20,7 @@ let statusItem: vscode.StatusBarItem | undefined;
 let statusBarMissingWarned = false; // one-time gate for missing status bar warning
 let _logChannel: vscode.OutputChannel | undefined;
 let logAutoOpened = false; // track automatic log opening per session
+let usageHistoryManager: UsageHistoryManager | undefined; // usage history tracking
 // (Removed unused lastIconOverrideWarningMessage to satisfy lint)
 let _test_lastStatusBarText: string | undefined; // test cache
 let _test_postedMessages: any[] = []; // test capture of webview postMessage payloads
@@ -42,6 +47,27 @@ async function getOctokit(auth?: string) {
 	return new Octokit({ auth, request: { headers: { 'X-GitHub-Api-Version': '2022-11-28' } } });
 }
 
+// Helper function to calculate included requests using plan data priority
+function getEffectiveIncludedRequests(config: vscode.WorkspaceConfiguration, billingIncluded: number): number {
+	// Priority 1: User manually set includedPremiumRequests
+	const userIncluded = Number(config.get('includedPremiumRequests') ?? 0) || 0;
+	if (userIncluded > 0) {
+		return userIncluded;
+	}
+
+	// Priority 2: Selected plan's included requests
+	const selectedPlanId = String(config.get('selectedPlanId') ?? '') || undefined;
+	if (selectedPlanId) {
+		const selectedPlan = findPlanById(selectedPlanId);
+		if (selectedPlan && typeof selectedPlan.included === 'number' && selectedPlan.included > 0) {
+			return selectedPlan.included;
+		}
+	}
+
+	// Priority 3: Fall back to billing data
+	return billingIncluded || 0;
+}
+
 // Small helper: fetch a string setting, returning trimmed string or undefined without needing per-call assertions.
 function trimmedSetting(cfg: vscode.WorkspaceConfiguration, key: string): string | undefined {
 	const v = cfg.get(key);
@@ -60,6 +86,7 @@ class UsagePanel {
 	private readonly globalState: vscode.Memento;
 	private disposables: vscode.Disposable[] = [];
 	private _dispatch?: (msg: any) => Promise<void>; // test hook (async)
+	private htmlInitialized = false; // track if webview HTML has been set
 
 	static async ensureGitHubSession(): Promise<vscode.AuthenticationSession | undefined> {
 		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
@@ -114,6 +141,9 @@ class UsagePanel {
 							securePatOnly,
 							hasSecurePat,
 							residualPlaintext,
+							// User overrides for included units and per-request pricing
+							includedPremiumRequests: Number(cfgNew.get('includedPremiumRequests') ?? 0),
+							pricePerPremiumRequest: Number(cfgNew.get('pricePerPremiumRequest') ?? 0.04),
 							noTokenStaleMessage: localize('cpum.webview.noTokenStale', 'Awaiting secure token for personal spend updates.'),
 							secureTokenTitle: localize('cpum.secureToken.indicator.title', 'Secure token stored in VS Code Secret Storage (encrypted by your OS).'),
 							secureTokenText: localize('cpum.secureToken.indicator.text', 'Secure token set'),
@@ -161,6 +191,36 @@ class UsagePanel {
 					}
 					break;
 				}
+				case 'planSelected': {
+					try {
+						const planId = message.planId as string | undefined;
+						const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+						await cfg.update('selectedPlanId', planId ?? '', vscode.ConfigurationTarget.Global);
+						// If selected plan maps to a known included value, populate includedPremiumRequests and pricePerPremiumRequest unless user has already set explicit overrides
+						const plan = findPlanById(planId);
+						if (plan) {
+							const currentIncluded = Number(cfg.get('includedPremiumRequests') ?? 0) || 0;
+							const currentPrice = Number(cfg.get('pricePerPremiumRequest') ?? 0.04) || 0.04;
+							if ((currentIncluded === 0 || currentIncluded === null) && plan.included) {
+								await cfg.update('includedPremiumRequests', plan.included, vscode.ConfigurationTarget.Global);
+							}
+							// Only set price if it's the default or unset
+							if (currentPrice === 0.04) {
+								const gen = loadGeneratedPlans();
+								if (gen && typeof gen.pricePerPremiumRequest === 'number') {
+									await cfg.update('pricePerPremiumRequest', gen.pricePerPremiumRequest, vscode.ConfigurationTarget.Global);
+								}
+							}
+						}
+						await postFreshConfig();
+					} catch { /* noop */ }
+					break;
+				}
+				case 'invokeSelectPlan': {
+					// Webview requested the QuickPick flow; execute the registered command which mirrors plan selection logic.
+					try { await vscode.commands.executeCommand('copilotPremiumUsageMonitor.selectPlan'); } catch { /* noop */ }
+					break;
+				}
 				case 'openSettings': { await vscode.commands.executeCommand('workbench.action.openSettings', 'copilotPremiumUsageMonitor'); break; }
 				case 'help': { _test_helpCount++; _test_lastHelpInvoked = Date.now(); const readme = vscode.Uri.joinPath(this.extensionUri, 'README.md'); try { await vscode.commands.executeCommand('markdown.showPreview', readme); } catch { try { await vscode.window.showTextDocument(readme); } catch { noop(); } } break; }
 				case 'dismissFirstRun': { await this.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', true); try { await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('disableFirstRunTips', true, vscode.ConfigurationTarget.Global); } catch { noop(); } break; }
@@ -198,6 +258,7 @@ class UsagePanel {
 						updateStatusBar();
 						break;
 					}
+
 					const cfgR = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); let org = trimmedSetting(cfgR, 'org');
 					const incomingMode = (message.mode as string | undefined) ?? (cfgR.get('mode')) ?? 'auto';
 					const mode = incomingMode === 'personal' || incomingMode === 'org' ? incomingMode : 'auto';
@@ -247,7 +308,31 @@ class UsagePanel {
 							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { noop(); }
 							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', Date.now()); } catch { /* noop */ }
 							await this.setSpend(billing.totalNetAmount);
-							this.post({ type: 'billing', billing });
+							// Attach user-configured overrides (if present) so webview can mark values as configured vs estimated.
+							try {
+								const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+								const userIncluded = Number(cfg.get('includedPremiumRequests') ?? 0) || 0;
+								const userPrice = Number(cfg.get('pricePerPremiumRequest') ?? 0.04) || 0.04;
+
+								// Use the new helper function for consistent plan priority logic
+								const effectiveIncluded = getEffectiveIncludedRequests(cfg, billing.totalIncludedQuantity);
+
+								const billingWithOverrides = {
+									...billing,
+									pricePerPremiumRequest: userPrice,
+									userConfiguredIncluded: userIncluded > 0,
+									userConfiguredPrice: userPrice !== 0.04,
+									totalIncludedQuantity: effectiveIncluded,
+									totalOverageQuantity: Math.max(0, billing.totalQuantity - effectiveIncluded)
+								};
+								// Persist a compact billing summary so the status bar can render included vs overage succinctly
+								try { await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastBilling', { totalQuantity: billing.totalQuantity, totalIncludedQuantity: billingWithOverrides.totalIncludedQuantity, pricePerPremiumRequest: billingWithOverrides.pricePerPremiumRequest || 0.04 }); } catch { /* noop */ }
+								this.post({ type: 'billing', billing: billingWithOverrides });
+							} catch (e) {
+								// On fallback, still persist a lastBilling snapshot if available
+								try { await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastBilling', { totalQuantity: billing.totalQuantity, totalIncludedQuantity: billing.totalIncludedQuantity, pricePerPremiumRequest: 0.04 }); } catch { /* noop */ }
+								this.post({ type: 'billing', billing });
+							}
 							this.post({ type: 'clearError' });
 							this.update();
 						} catch (e: any) {
@@ -291,7 +376,8 @@ class UsagePanel {
 	}
 	private get webviewHtml(): string {
 		const webview = this.panel.webview;
-		const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.js'));
+		const cacheBuster = Date.now(); // Add cache buster to force reload
+		const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.js')).toString() + '?v=' + cacheBuster;
 		const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.css'));
 		const nonce = getNonce();
 		return `<!DOCTYPE html>
@@ -308,6 +394,37 @@ class UsagePanel {
 <div id="app">
 <h2>${localize('cpum.title', 'Copilot Premium Usage Monitor')}</h2>
 <div id="summary"></div>
+<div id="usage-history-section" style="display: none;">
+<h3>Usage History & Trends</h3>
+<div id="usage-charts">
+<div class="chart-container">
+<h4>Request Rate Trend</h4>
+<canvas id="trend-chart"></canvas>
+</div>
+<div class="stats-grid">
+<div class="stat-card">
+<div class="stat-title">Current Rate</div>
+<div class="stat-value" id="current-rate">--</div>
+<div class="stat-unit">req/hr</div>
+</div>
+<div class="stat-card">
+<div class="stat-title">Daily Projection</div>
+<div class="stat-value" id="daily-projection">--</div>
+<div class="stat-unit">requests</div>
+</div>
+<div class="stat-card">
+<div class="stat-title">Weekly Projection</div>
+<div class="stat-value" id="weekly-projection">--</div>
+<div class="stat-unit">requests</div>
+</div>
+<div class="stat-card">
+<div class="stat-title">Trend Direction</div>
+<div class="stat-value" id="trend-direction">--</div>
+<div class="stat-unit" id="trend-confidence">--</div>
+</div>
+</div>
+</div>
+</div>
 <div class="controls controls-row">
 <div class="btn-group">
 <button class="btn" id="refresh">${localize('cpum.refresh', 'Refresh')}</button>
@@ -326,14 +443,148 @@ class UsagePanel {
 </div>
 </div>
 </div>
-<script nonce="${nonce}" src="${scriptUri.toString()}"></script>
+<script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
 	}
 	private async maybeShowFirstRunNotice() { const key = 'copilotPremiumUsageMonitor.firstRunShown'; const shown = this.globalState.get<boolean>(key); const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const disabled = cfg.get<boolean>('disableFirstRunTips') === true || this.globalState.get<boolean>('copilotPremiumUsageMonitor.firstRunDisabled') === true; if (shown || disabled) return; this.post({ type: 'notice', severity: 'info', text: localize('cpum.firstRun.tip', "Tip: Org metrics use your GitHub sign-in (read:org). Personal spend needs a PAT with 'Plan: read-only'. Avoid syncing your PAT. Click Help to learn more."), helpAction: true, dismissText: localize('cpum.firstRun.dismiss', "Don't show again"), learnMoreText: localize('cpum.firstRun.learnMore', 'Learn more'), openBudgetsText: localize('cpum.firstRun.openBudgets', 'Open budgets'), budgetsUrl: 'https://github.com/settings/billing/budgets' }); await this.globalState.update(key, true); }
-	private async setSpend(v: number) { await this.globalState.update('copilotPremiumUsageMonitor.currentSpend', v); updateStatusBar(); }
+	private async setSpend(v: number) {
+		await this.globalState.update('copilotPremiumUsageMonitor.currentSpend', v);
+		updateStatusBar();
+		// Collect usage history snapshot if appropriate
+		void this.maybeCollectUsageSnapshot();
+	}
 	private getSpend(): number { const stored = this.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend'); if (typeof stored === 'number') return stored; const cfg = vscode.workspace.getConfiguration(); const legacy = cfg.get<number>('copilotPremiumMonitor.currentSpend', 0); return legacy ?? 0; }
-	private update() { this.panel.webview.html = this.webviewHtml; const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const budget = Number(config.get('budget') ?? 0); const spend = this.getSpend(); const pct = budget > 0 ? Math.min(100, Math.round((spend / budget) * 100)) : 0; const warnAtPercent = Number(config.get('warnAtPercent') ?? DEFAULT_WARN_AT_PERCENT); const dangerAtPercent = Number(config.get('dangerAtPercent') ?? DEFAULT_DANGER_AT_PERCENT); setTimeout(() => this.post({ type: 'summary', budget, spend, pct, warnAtPercent, dangerAtPercent }), 50); }
+	private async update() {
+		// Check if this is the first initialization
+		const isFirstInit = !this.htmlInitialized;
+
+		// Only set HTML on first initialization to avoid resetting the webview
+		if (isFirstInit) {
+			this.panel.webview.html = this.webviewHtml;
+			this.htmlInitialized = true;
+		}
+
+		// Calculate all usage data using centralized function including trends
+		const cfgExp = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		const trendsEnabled = !!cfgExp.get('enableExperimentalTrends');
+		const completeData = await calculateCompleteUsageData();
+		if (!completeData) return;
+
+		const { budget, spend, budgetPct: pct, warnAt: warnAtPercent, dangerAt: dangerAtPercent,
+			included, includedUsed, includedPct, usageHistory: historyData } = completeData;
+
+		// Debug: Log trend data for main panel (only if feature enabled)
+		if (trendsEnabled && historyData?.trend) {
+			console.log('Main panel trend data:', {
+				hourlyRate: historyData.trend.hourlyRate,
+				dailyProjection: historyData.trend.dailyProjection,
+				weeklyProjection: historyData.trend.weeklyProjection,
+				trend: historyData.trend.trend,
+				confidence: historyData.trend.confidence
+			});
+		}
+
+		// Send data immediately if HTML was already initialized (reopened panel)
+		// Use a small delay only for fresh initialization to allow webview script to load
+		const delay = isFirstInit ? 50 : 0;
+		setTimeout(() => this.post({
+			type: 'summary',
+			budget,
+			spend,
+			pct,
+			warnAtPercent,
+			dangerAtPercent,
+			included,
+			includedUsed,
+			includedPct,
+			usageHistory: trendsEnabled ? historyData : null
+		}), delay);
+	}
+
+	private async maybeCollectUsageSnapshot() {
+		if (!usageHistoryManager || !extCtx) return;
+
+		try {
+			// Check if it's time to collect a snapshot
+			const shouldCollect = await usageHistoryManager.shouldCollectSnapshot();
+			if (!shouldCollect) return;
+
+			// Get current billing data and spend
+			const lastBilling = this.globalState.get<any>('copilotPremiumUsageMonitor.lastBilling');
+			const spend = this.getSpend();
+
+			if (!lastBilling) return; // No billing data yet
+
+			// Calculate included usage using plan data priority
+			const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+			const includedFromBilling = Number(lastBilling.totalIncludedQuantity || 0);
+			const included = getEffectiveIncludedRequests(config, includedFromBilling);
+			const totalQuantity = Number(lastBilling.totalQuantity || 0);
+			const includedUsed = totalQuantity;
+
+			console.log('[Usage History] Collecting snapshot:', {
+				totalQuantity,
+				includedUsed,
+				spend,
+				included,
+				selectedPlanId: config.get('selectedPlanId'),
+				userIncluded: config.get('includedPremiumRequests'),
+				billingIncluded: includedFromBilling
+			});
+
+			// Collect snapshot
+			await usageHistoryManager.collectSnapshot({
+				totalQuantity,
+				includedUsed,
+				spend,
+				included
+			});
+		} catch (error) {
+			// Silently fail - don't disrupt main functionality
+			console.error('Failed to collect usage snapshot:', error);
+		}
+	}
+
+	private async forceCollectUsageSnapshot() {
+		if (!usageHistoryManager || !extCtx) return;
+
+		try {
+			// Get current billing data and spend (same as maybeCollectUsageSnapshot but without time check)
+			const lastBilling = this.globalState.get<any>('copilotPremiumUsageMonitor.lastBilling');
+			const spend = this.getSpend();
+
+			if (!lastBilling) return; // No billing data yet
+
+			// Calculate included usage using plan data priority
+			const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+			const includedFromBilling = Number(lastBilling.totalIncludedQuantity || 0);
+			const included = getEffectiveIncludedRequests(config, includedFromBilling);
+			const totalQuantity = Number(lastBilling.totalQuantity || 0);
+			const includedUsed = totalQuantity;
+
+			console.log('[Usage History Force] Collecting snapshot:', {
+				totalQuantity,
+				includedUsed,
+				spend,
+				included,
+				selectedPlanId: config.get('selectedPlanId'),
+				userIncluded: config.get('includedPremiumRequests'),
+				billingIncluded: includedFromBilling
+			});
+
+			// Collect snapshot (forcing immediate collection)
+			await usageHistoryManager.collectSnapshot({
+				totalQuantity,
+				includedUsed,
+				spend,
+				included
+			});
+		} catch (error) {
+			// Silently fail - don't disrupt main functionality
+			console.error('Failed to force collect usage snapshot:', error);
+		}
+	}
 }
 
 // Helper to immediately push a fresh config snapshot after token mutations so
@@ -372,6 +623,14 @@ async function postFreshConfig() {
 			secureTokenTitleResidual: localize('cpum.secureToken.indicator.titleResidual', 'Secure token present (plaintext copy still in settings – clear it).'),
 			secureTokenTextResidual: localize('cpum.secureToken.indicator.textResidual', 'Secure token + Plaintext in settings')
 		};
+		// Attach generated plan data (if available) and selected plan id
+		try {
+			const plans = loadGeneratedPlans();
+			if (plans) {
+				(baseConfig as any).generatedPlans = plans;
+			}
+			(baseConfig as any).selectedPlanId = trimmedSetting(cfgNew, 'selectedPlanId');
+		} catch { /* noop */ }
 		// lastPostedTokenState removed
 		UsagePanel.currentPanel['post']?.({ type: 'config', config: baseConfig });
 	} catch { /* noop */ }
@@ -422,10 +681,58 @@ function maybeDumpExtensionHostCoverage() {
 
 export function activate(context: vscode.ExtensionContext) {
 	extCtx = context;
+	// Initialize usage history manager
+	usageHistoryManager = new UsageHistoryManager(context);
 	// Provide logging bridge for secrets helpers
 	setSecretsLogger((m) => { try { getLog().appendLine(`[secrets] ${m}`); } catch { /* noop */ } });
 	// Kick off token migration check (fire & forget)
 	void maybeOfferTokenMigration(context);
+
+	// Register sidebar view provider conditionally based on setting
+	let sidebarDisposable: vscode.Disposable | undefined;
+	function registerSidebarIfEnabled() {
+		const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		const showSidebar = config.get<boolean>('showSidebar', true);
+
+		if (showSidebar && !sidebarDisposable) {
+			// Register sidebar
+			const sidebarProvider = new CopilotUsageSidebarProvider(context.extensionUri, context);
+			sidebarDisposable = vscode.window.registerWebviewViewProvider(
+				CopilotUsageSidebarProvider.viewType,
+				sidebarProvider,
+				{ webviewOptions: { retainContextWhenHidden: true } }
+			);
+			context.subscriptions.push(sidebarDisposable);
+		} else if (!showSidebar && sidebarDisposable) {
+			// Unregister sidebar
+			sidebarDisposable.dispose();
+			const index = context.subscriptions.indexOf(sidebarDisposable);
+			if (index !== -1) {
+				context.subscriptions.splice(index, 1);
+			}
+			sidebarDisposable = undefined;
+		}
+	}
+
+	// Initial registration
+	registerSidebarIfEnabled();
+
+	// Listen for setting changes
+	context.subscriptions.push(
+		vscode.workspace.onDidChangeConfiguration((e) => {
+			if (e.affectsConfiguration('copilotPremiumUsageMonitor.showSidebar')) {
+				void vscode.window.showInformationMessage(
+					'Sidebar setting changed. Please reload the window for the change to take effect.',
+					'Reload Window'
+				).then(selection => {
+					if (selection === 'Reload Window') {
+						vscode.commands.executeCommand('workbench.action.reloadWindow');
+					}
+				});
+			}
+		})
+	);
+
 	const openPanel = vscode.commands.registerCommand('copilotPremiumUsageMonitor.openPanel', () => UsagePanel.createOrShow(context));
 	const signIn = vscode.commands.registerCommand('copilotPremiumUsageMonitor.signIn', async () => { await UsagePanel.ensureGitHubSession(); void vscode.window.showInformationMessage('GitHub sign-in completed (if required).'); });
 	const configureOrg = vscode.commands.registerCommand('copilotPremiumUsageMonitor.configureOrg', async () => {
@@ -449,6 +756,38 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 	});
 	const manage = vscode.commands.registerCommand('copilotPremiumUsageMonitor.manage', async () => { try { await vscode.commands.executeCommand('workbench.action.openSettings', '@ext:fail-safe.copilot-premium-usage-monitor copilotPremiumUsageMonitor'); } catch { await vscode.commands.executeCommand('workbench.action.openSettings', 'copilotPremiumUsageMonitor'); } });
+	// Command: select a built-in plan via QuickPick (populates selectedPlanId setting)
+	const selectPlan = vscode.commands.registerCommand('copilotPremiumUsageMonitor.selectPlan', async () => {
+		try {
+			const plans = listAvailablePlans();
+			if (!plans || plans.length === 0) {
+				void vscode.window.showInformationMessage('No plans available.');
+				return;
+			}
+			const items = plans.map(p => ({ label: p.name || p.id, description: p.included ? `${p.included} included` : '', id: p.id }));
+			const pick = await vscode.window.showQuickPick(items, { placeHolder: localize('cpum.plans.dropdown.placeholder', '(Select built-in plan)') });
+			if (!pick) return;
+			const planId = (pick as any).id;
+			const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+			await cfg.update('selectedPlanId', planId ?? '', vscode.ConfigurationTarget.Global);
+			// Apply same mapping logic as planSelected message
+			const plan = findPlanById(planId);
+			if (plan) {
+				const currentIncluded = Number(cfg.get('includedPremiumRequests') ?? 0) || 0;
+				const currentPrice = Number(cfg.get('pricePerPremiumRequest') ?? 0.04) || 0.04;
+				if ((currentIncluded === 0 || currentIncluded === null) && plan.included) {
+					await cfg.update('includedPremiumRequests', plan.included, vscode.ConfigurationTarget.Global);
+				}
+				if (currentPrice === 0.04) {
+					const price = getGeneratedPrice();
+					if (typeof price === 'number') {
+						await cfg.update('pricePerPremiumRequest', price, vscode.ConfigurationTarget.Global);
+					}
+				}
+			}
+			await postFreshConfig();
+		} catch (e) { /* noop */ }
+	});
 	const showLogs = vscode.commands.registerCommand('copilotPremiumUsageMonitor.showLogs', () => { const log = getLog(); log.show(true); log.appendLine('[User] Opened log channel'); });
 	const migrateTokenCmd = vscode.commands.registerCommand('copilotPremiumUsageMonitor.migrateToken', async () => {
 		await performExplicitMigration(context, true);
@@ -490,6 +829,22 @@ export function activate(context: vscode.ExtensionContext) {
 		await context.globalState.update('copilotPremiumUsageMonitor.firstRunShown', false);
 		await context.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', false);
 	});
+
+	// Toggle sidebar command
+	const toggleSidebar = vscode.commands.registerCommand('copilotPremiumUsageMonitor.toggleSidebar', async () => {
+		const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		const currentValue = config.get<boolean>('showSidebar', true);
+		await config.update('showSidebar', !currentValue, vscode.ConfigurationTarget.Global);
+
+		void vscode.window.showInformationMessage(
+			`Sidebar ${!currentValue ? 'enabled' : 'disabled'}. Please reload the window for the change to take effect.`,
+			'Reload Window'
+		).then(selection => {
+			if (selection === 'Reload Window') {
+				vscode.commands.executeCommand('workbench.action.reloadWindow');
+			}
+		});
+	});
 	// Configuration change handler
 	context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
 		const affectsCore = e.affectsConfiguration('copilotPremiumUsageMonitor.budget')
@@ -504,7 +859,8 @@ export function activate(context: vscode.ExtensionContext) {
 		if (e.affectsConfiguration('copilotPremiumUsageMonitor.refreshIntervalMinutes')) restartAutoRefresh();
 		if (e.affectsConfiguration('copilotPremiumUsageMonitor.statusBarAlignment')) { initStatusBar(context); try { updateStatusBar(); } catch { /* noop */ } }
 	}));
-	context.subscriptions.push(openPanel, signIn, configureOrg, manage, showLogs, migrateTokenCmd, setTokenSecure, clearTokenSecure, enableFirstRunNotice);
+	context.subscriptions.push(openPanel, signIn, configureOrg, manage, showLogs, migrateTokenCmd, setTokenSecure, clearTokenSecure, enableFirstRunNotice, toggleSidebar);
+	context.subscriptions.push(selectPlan);
 	initStatusBar(context); updateStatusBar();
 	// Start background timers (auto refresh + relative time). Tests can disable via env.
 	if (process.env.CPUM_TEST_DISABLE_TIMERS !== '1') { startAutoRefresh(); startRelativeTimeTicker(); }
@@ -544,6 +900,9 @@ export function activate(context: vscode.ExtensionContext) {
 	maybeDumpExtensionHostCoverage();
 	return {
 		_test_getStatusBarText, _test_forceStatusBarUpdate, _test_setSpendAndUpdate, _test_getStatusBarColor, _test_setLastSyncTimestamp, _test_setLastSyncAttempt, _test_getRefreshIntervalId, _test_getAttemptMeta, _test_getLogBuffer, _test_clearLastError, _test_setLastError, _test_getRefreshRestartCount, _test_getLogAutoOpened, _test_getSpend, _test_getLastError, _test_getPostedMessages, _test_resetPostedMessages, _test_resetFirstRun, _test_closePanel, _test_setIconOverrideWarning, _test_getHelpCount, _test_getLastHelpInvoked, _test_forceCoverageDump: () => { try { maybeDumpExtensionHostCoverage(); } catch { /* noop */ } }, _test_setOctokitFactory: (fn: any) => { _testOctokitFactory = fn; }, _test_invokeWebviewMessage: (msg: any) => { try { (UsagePanel as any)._test_invokeMessage(msg); } catch { /* noop */ } }, _test_refreshPersonal, _test_refreshOrg,
+		// Expose selected module-level helpers for tests
+		getUsageHistoryManager,
+		calculateCompleteUsageData,
 		// Simulate window focus state changes (for testing dynamic relative interval)
 		_test_simulateWindowFocus: (focused: boolean) => {
 			try {
@@ -571,6 +930,7 @@ export function activate(context: vscode.ExtensionContext) {
 			await new Promise(r => setTimeout(r, 100));
 		},
 		_test_forceConfig: async () => { await postFreshConfig(); },
+		_test_setLastBilling: async (b: any) => { try { if (extCtx) await extCtx.globalState.update('copilotPremiumUsageMonitor.lastBilling', b); } catch { /* noop */ } },
 	};
 }
 // Test-only export to drive migration logic
@@ -733,6 +1093,81 @@ function initStatusBar(context: vscode.ExtensionContext) {
 	}
 }
 
+// Centralized data calculation to ensure all views use the same values
+export function calculateCurrentUsageData() {
+	if (!extCtx) return null;
+
+	const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+	const lastBilling = extCtx.globalState.get<any>('copilotPremiumUsageMonitor.lastBilling');
+	const spend = Number(extCtx.globalState.get('copilotPremiumUsageMonitor.currentSpend') ?? 0);
+	const budget = Number(config.get('budget') ?? 0);
+
+	// Calculate included requests data using consistent logic
+	const includedFromBilling = lastBilling ? Number(lastBilling.totalIncludedQuantity || 0) : 0;
+	const included = getEffectiveIncludedRequests(config, includedFromBilling);
+	const totalQuantity = lastBilling ? Number(lastBilling.totalQuantity || 0) : 0;
+	// Show the actual used count even when it exceeds the included allotment so UI can display e.g. 134/50.
+	// Percent stays clamped to 100 so the meter doesn't overflow.
+	const includedUsed = totalQuantity;
+	const includedPct = included > 0 ? Math.min(100, Math.round((totalQuantity / included) * 100)) : 0;
+
+	// Calculate budget data
+	const budgetPct = budget > 0 ? Math.min(100, Math.round((spend / budget) * 100)) : 0;
+	const warnAt = Number(config.get('warnAtPercent') ?? 75);
+	const dangerAt = Number(config.get('dangerAtPercent') ?? 90);
+
+	// Determine color based on thresholds
+	let progressColor = '#2d7d46'; // green
+	if (budgetPct >= dangerAt && dangerAt > 0) {
+		progressColor = '#e51400'; // red
+	} else if (budgetPct >= warnAt && warnAt > 0) {
+		progressColor = '#ffcc02'; // yellow
+	}
+
+	return {
+		budget,
+		spend,
+		budgetPct,
+		progressColor,
+		warnAt,
+		dangerAt,
+		included,
+		includedUsed,
+		includedPct,
+		totalQuantity,
+		lastBilling
+	};
+}
+
+// Centralized async data calculation that includes trend data
+export async function calculateCompleteUsageData() {
+	const baseData = calculateCurrentUsageData();
+	if (!baseData) return null;
+
+	// Get usage history data consistently for all views
+	let historyData = null;
+	if (usageHistoryManager) {
+		try {
+			const trend = await usageHistoryManager.calculateTrend();
+			const recentSnapshots = await usageHistoryManager.getRecentSnapshots(48); // Last 48 hours
+			const dataSize = await usageHistoryManager.getDataSize();
+
+			historyData = {
+				trend,
+				recentSnapshots,
+				dataSize
+			};
+		} catch (error) {
+			console.error('Failed to get usage history data:', error);
+		}
+	}
+
+	return {
+		...baseData,
+		usageHistory: historyData
+	};
+}
+
 function updateStatusBar() {
 	try {
 		if (!statusItem || !extCtx) {
@@ -792,16 +1227,80 @@ function updateStatusBar() {
 			// leave undefined to inherit theme's status bar foreground
 			derivedColor = undefined;
 		}
-		statusItem.text = `$(${icon}) ${percent}% ${bar}${staleTag || noTokenStale}`;
+		try {
+			const prefixText = `$(${icon}) ${percent}% `;
+			// Render status bar using rounded-square glyphs instead of solid/empty squares (visual from earlier release)
+			const barFancy = bar.replace(/■/g, '▰').replace(/□/g, '▱');
+			statusItem.text = `${prefixText}${barFancy}${staleTag || noTokenStale}`;
+		} catch { /* noop */ }
 		// Store for tests
 		_test_lastStatusBarText = statusItem.text;
 		statusItem.color = derivedColor;
 		const md = new vscode.MarkdownString(undefined, true);
 		md.isTrusted = true;
 		let _capture = '';
+
 		function cap(s: string) { _capture += s; md.appendMarkdown(s); }
 		cap(`**${localize('cpum.statusbar.title', 'Copilot Premium Usage')}**\n\n`);
-		cap(`${localize('cpum.statusbar.budget', 'Budget')}: $${budget.toFixed(2)}  |  ${localize('cpum.statusbar.spend', 'Spend')}: $${spend.toFixed(2)}  |  ${localize('cpum.statusbar.used', 'Used')}: ${percent}%`);
+
+		// Accessibility: include explicit included/overage summary in tooltip for screen readers (pure helper)
+		try {
+			const lastBilling = extCtx.globalState.get<any>('copilotPremiumUsageMonitor.lastBilling');
+			// Derive the included value used for tooltip rendering: prefer user-configured included, then selected plan, then lastBilling.
+			const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+			const userIncluded = Number(cfg.get('includedPremiumRequests') ?? 0) || 0;
+			const selectedPlanId = String(cfg.get('selectedPlanId') ?? '') || undefined;
+			const selectedPlan = selectedPlanId ? findPlanById(selectedPlanId) : null;
+			const includedToShow = userIncluded > 0
+				? userIncluded
+				: ((selectedPlan && typeof selectedPlan.included === 'number' && selectedPlan.included > 0) ? selectedPlan.included : (lastBilling ? Number(lastBilling.totalIncludedQuantity || 0) || 0 : 0));
+			// Also show stacked bars in tooltip where multiline is supported
+			try {
+				const segs = 10;
+				// Use equal-width glyphs for tooltip (monospace-safe) to avoid visual length drift across fonts.
+				const filledGlyph = '▰';
+				const emptyGlyph = '▱';
+				if (lastBilling && typeof lastBilling.totalQuantity === 'number') {
+					const total = Number(lastBilling.totalQuantity || 0);
+					const included = includedToShow || 0;
+					const used = included > 0 ? Math.min(total, included) : 0;
+
+					// Header
+					cap('\n\n**Usage Charts:**\n\n');
+
+					// Build rows for a Markdown table so bars align horizontally
+					const rows: Array<{ label: string; bar: string; pct: string; }> = [];
+					if (included > 0) {
+						const includedPercent = included > 0 ? (used / included) * 100 : 0;
+						const pctIn = included > 0 ? Math.round((used / included) * 100) : 0;
+						const filled = Math.round((pctIn / 100) * segs);
+						const barText = filledGlyph.repeat(filled) + emptyGlyph.repeat(Math.max(0, segs - filled));
+						rows.push({ label: `Included (${used}/${included}):`, bar: barText, pct: `${includedPercent.toFixed(1)}%` });
+					}
+					if (budget > 0) {
+						const bVal = Number(cfg.get('budget') ?? 0);
+						const budgetPercent = Math.max(0, Math.min(100, Math.round((bVal > 0 ? (spend / bVal) : 0) * 100)));
+						const budgetFilled = Math.round((budgetPercent / 100) * segs);
+						const barText = filledGlyph.repeat(budgetFilled) + emptyGlyph.repeat(Math.max(0, segs - budgetFilled));
+						rows.push({ label: `Budget ($${spend.toFixed(2)}/$${budget.toFixed(2)}):`, bar: barText, pct: `${budgetPercent.toFixed(1)}%` });
+					}
+
+					if (rows.length) {
+						// Table header (minimal) and rows
+						cap('|  |  |  |\n|---|---|---|\n');
+						for (const r of rows) {
+							cap(`| ${r.label} | \`${r.bar}\` | ${r.pct} |\n`);
+						}
+						cap('\n');
+					}
+				} else if (includedToShow > 0) {
+					// No lastBilling but we know an included plan exists: show an empty bar placeholder
+					cap('\n\n**Usage Charts:**\n\n');
+					cap('|  |  |  |\n|---|---|---|\n');
+					cap(`| Included (0/${includedToShow}): | \`${emptyGlyph.repeat(segs)}\` | 0.0% |\n\n`);
+				}
+			} catch { /* noop */ }
+		} catch { /* noop */ }
 		// Show last (successful) sync timestamp even when stale
 		{
 			const ts = extCtx.globalState.get<number>('copilotPremiumUsageMonitor.lastSyncTimestamp');
@@ -938,7 +1437,7 @@ function stopRelativeTimeTicker() {
 	}
 }
 
-async function performAutoRefresh() {
+export async function performAutoRefresh() {
 	// Try non-interactive token acquisition to avoid prompting
 	const token = await getGitHubTokenNonInteractive();
 	if (!token) return; // quietly skip
@@ -960,6 +1459,13 @@ async function performAutoRefresh() {
 			try { await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastSyncTimestamp', Date.now()); } catch { /* noop */ }
 			try { await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', Date.now()); } catch { /* noop */ }
 			await extCtx!.globalState.update('copilotPremiumUsageMonitor.currentSpend', billing.totalNetAmount);
+
+			// Update billing data for sidebar and history collection
+			try { await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastBilling', { totalQuantity: billing.totalQuantity, totalIncludedQuantity: billing.totalIncludedQuantity, pricePerPremiumRequest: 0.04 }); } catch { /* noop */ }
+
+			// Collect usage history snapshot if appropriate
+			void collectUsageSnapshotBackground(billing);
+
 			updateStatusBar(); // will drop stale tag if present
 			// After obtaining spend, ensure config reflects secure token presence (avoids stale no-token hint)
 			try { await postFreshConfig(); } catch { /* noop */ }
@@ -969,6 +1475,47 @@ async function performAutoRefresh() {
 		}
 	} else {
 		// Org mode: we don't derive spend; optional future: surface a small org metric badge (sidebar removed)
+	}
+}
+
+async function collectUsageSnapshotBackground(billing: any) {
+	if (!usageHistoryManager || !extCtx) return;
+
+	try {
+		// Check if it's time to collect a snapshot
+		const shouldCollect = await usageHistoryManager.shouldCollectSnapshot();
+		if (!shouldCollect) return;
+
+		// Get current spend
+		const spend = Number(extCtx.globalState.get('copilotPremiumUsageMonitor.currentSpend') ?? 0);
+
+		// Calculate included usage using plan data priority
+		const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		const includedFromBilling = Number(billing.totalIncludedQuantity || 0);
+		const included = getEffectiveIncludedRequests(config, includedFromBilling);
+		const totalQuantity = Number(billing.totalQuantity || 0);
+		const includedUsed = totalQuantity;
+
+		console.log('[Usage History Background] Collecting snapshot:', {
+			totalQuantity,
+			includedUsed,
+			spend,
+			included,
+			selectedPlanId: config.get('selectedPlanId'),
+			userIncluded: config.get('includedPremiumRequests'),
+			billingIncluded: includedFromBilling
+		});
+
+		// Collect snapshot
+		await usageHistoryManager.collectSnapshot({
+			totalQuantity,
+			includedUsed,
+			spend,
+			included
+		});
+	} catch (error) {
+		// Silently fail - don't disrupt main functionality
+		console.error('Failed to collect usage snapshot:', error);
 	}
 }
 
@@ -1063,12 +1610,24 @@ async function fetchUserBillingUsage(username: string, token: string, opts: { ye
 		day: opts.day,
 		hour: opts.hour,
 	});
+	console.log(res.data);
 	const usageItems = (res.data).usageItems as BillingUsageItem[] | undefined;
 	const items = usageItems ?? [];
 	const copilotItems = items.filter((i) => i.product?.toLowerCase() === 'copilot');
 	const totalNetAmount = copilotItems.reduce((sum, i) => sum + (Number(i.netAmount) || 0), 0);
 	const totalQuantity = copilotItems.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
-	return { items: copilotItems, totalNetAmount, totalQuantity };
+	// Derive included units from discountAmount / pricePerUnit per item (guard division by zero).
+	// Round per-item included quantities to nearest whole unit since requests are integer counts.
+	const totalIncludedQuantity = copilotItems.reduce((sum, i) => {
+		const price = Number(i.pricePerUnit) || 0;
+		const discount = Number(i.discountAmount) || 0;
+		if (price <= 0) return sum;
+		const included = Math.round(discount / price);
+		return sum + included;
+	}, 0);
+	// Overage units are any units beyond the included allotment.
+	const totalOverageQuantity = Math.max(0, totalQuantity - totalIncludedQuantity);
+	return { items: copilotItems, totalNetAmount, totalQuantity, totalIncludedQuantity, totalOverageQuantity };
 }
 
 function getNonce() {
@@ -1189,4 +1748,10 @@ export async function _test_refreshOrg() {
 		updateStatusBar();
 	}
 }
+
+export function getUsageHistoryManager(): UsageHistoryManager | undefined {
+	return usageHistoryManager;
+}
+
+export { getEffectiveIncludedRequests };
 

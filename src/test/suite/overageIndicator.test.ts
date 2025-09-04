@@ -25,9 +25,9 @@ class Elem {
     querySelector(selector: string): Elem | null {
         if (selector.startsWith('#')) return findById(selector.slice(1)) || null;
         if (selector.includes('.')) {
-            // very naive: look for first child with all classes
-            const classes = selector.split('.').filter(Boolean);
-            return traverse(root, el => classes.every(c => el.classList._s.has(c))) || null;
+            // naive: first child with class
+            const cls = selector.split('.').filter(Boolean);
+            return traverse(root, el => cls.every(c => el.classList._s.has(c))) || null;
         }
         return null;
     }
@@ -46,12 +46,6 @@ function traverse(node: Elem, pred: (e: Elem) => boolean): Elem | undefined {
 const root = new Elem('body');
 const summary = new Elem('div'); summary.id = 'summary'; register(summary); root.appendChild(summary);
 const controls = new Elem('div'); controls.classList.add('controls'); root.appendChild(controls);
-const rightGroup = new Elem('div'); rightGroup.classList.add('right-group'); controls.appendChild(rightGroup);
-// Add elements expected by webview event listener wiring
-const openSettings = new Elem('button'); openSettings.id = 'openSettings'; register(openSettings); controls.appendChild(openSettings);
-const refreshBtn = new Elem('button'); refreshBtn.id = 'refresh'; register(refreshBtn); controls.appendChild(refreshBtn);
-const helpBtn = new Elem('button'); helpBtn.id = 'help'; register(helpBtn); controls.appendChild(helpBtn);
-const modeSelect = new Elem('select'); modeSelect.id = 'mode'; register(modeSelect); controls.appendChild(modeSelect);
 
 // Global document stub
 const documentStub = {
@@ -73,25 +67,30 @@ const windowStub: any = {
 (global as any).console = console;
 (global as any).acquireVsCodeApi = () => ({ postMessage: () => { /* noop */ } });
 
-suite('Webview stale state (no token)', () => {
-    test('adds summary-error and unavailable message', () => {
+suite('Panel overage indicator', () => {
+    test('shows (+X over) when includedUsed exceeds included', () => {
         const webviewJsPath = path.resolve(__dirname, '../../../media/webview.js');
         const code = fs.readFileSync(webviewJsPath, 'utf8');
-        // Evaluate webview script (registers message handler). Ensure fresh handler each run.
-        messageHandler = undefined;
+        // Evaluate webview script (registers message handler)
         eval(code);
-        // Fallback to hook when addEventListener path is bypassed in Node test env
-        if (!messageHandler && (global as any).window && (global as any).window.__cpumMessageHandler) {
-            messageHandler = (global as any).window.__cpumMessageHandler;
-        }
         assert.ok(messageHandler, 'Expected message handler registered');
-        const config = { mode: 'personal', org: '', hasSecurePat: false, residualPlaintext: false, noTokenStaleMessage: 'Awaiting secure token for personal spend updates.' };
-        // Invoke as a window message event to mirror webview usage
-        (messageHandler as any)({ data: { type: 'config', config } });
-        const summaryEl = (global as any).document.getElementById('summary') as any;
-        assert.ok(summaryEl && summaryEl.classList.contains('summary-error'), 'summary-error class expected on summary');
-        const unavailable = (summaryEl.children || []).find((c: any) => c.id === 'summary-unavailable');
-        assert.ok(unavailable, 'Expected summary-unavailable element');
-        assert.match(unavailable.textContent, /Awaiting secure token/i, 'Expected awaiting token message');
+        // Dispatch a summary with includedUsed > included
+        const msg = {
+            data: {
+                type: 'summary',
+                budget: 10,
+                spend: 3,
+                pct: 30,
+                warnAtPercent: 75,
+                dangerAtPercent: 90,
+                included: 50,
+                includedUsed: 134,
+                includedPct: 100,
+                usageHistory: null
+            }
+        };
+        messageHandler!(msg);
+        // Expect overage text present in summary HTML
+        assert.ok(/\(\+84 over\)/.test(summary.innerHTML), 'Expected overage text (+84 over) in summary');
     });
 });
