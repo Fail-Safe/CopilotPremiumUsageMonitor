@@ -41,5 +41,21 @@
     "cpum.secureToken.indicator.titleResidual": "Secure token present (plaintext copy still in settings – clear it).",
     "cpum.secureToken.indicator.textResidual": "Secure token + Plaintext in settings",
     "cpum.statusbar.noToken": "Awaiting secure token for personal spend updates.",
-    "cpum.webview.noTokenStale": "Awaiting secure token for personal spend updates."
+    "cpum.webview.noTokenStale": "Awaiting secure token for personal spend updates.",
+    "cpum.plans.dropdown.placeholder": "(Select built-in plan)",
+    "cpum.plans.label": "Plan:",
+    "cpum.webview.included.help": "Included Premium Requests are the monthly included Premium requests from your plan or configured override.",
+    "cpum.webview.price.help": "Price per Premium request used for overage estimation.",
+    "cpum.webview.used": "Used",
+    "cpum.webview.overage": "Overage",
+    "cpum.settings.showSidebar": "Show usage overview in sidebar",
+    "cpum.settings.showSidebar.description": "Display the usage overview sidebar in the activity bar for quick monitoring",
+    "cpum.statusbar.included": "Included Premium Requests",
+    "cpum.statusbar.overage": "Overage",
+    "cpum.plans.copilot-free": "Copilot Free (50 included)",
+    "cpum.plans.copilot-pro": "Copilot Pro (300 included)",
+    "cpum.plans.copilot-proplus": "Copilot Pro+ (1500 included)",
+    "cpum.plans.copilot-business": "Copilot Business (300 included)",
+    "cpum.plans.copilot-enterprise": "Copilot Enterprise (1000 included)",
+    "cpum.plans.selectPlanButton": "Select built-in plan..."
 }
