@@ -32,7 +32,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.86.0",
+    "vscode": "^1.103.0",
     "node": ">=20.0.0"
   },
   "categories": [
@@ -76,8 +76,32 @@
       {
         "command": "copilotPremiumUsageMonitor.clearTokenSecure",
         "title": "Copilot Premium Usage Monitor: Clear Stored Token"
+      },
+      {
+        "command": "copilotPremiumUsageMonitor.toggleSidebar",
+        "title": "Copilot Premium Usage Monitor: Toggle Sidebar"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "copilot-premium-usage",
+          "title": "Copilot Premium Usage",
+          "icon": "$(dashboard)"
+        }
+      ]
+    },
+    "views": {
+      "copilot-premium-usage": [
+        {
+          "type": "webview",
+          "id": "copilotPremiumUsage.sidebarView",
+          "name": "Usage Overview",
+          "icon": "$(graph)",
+          "when": "config.copilotPremiumUsageMonitor.showSidebar"
+        }
+      ]
+    },
     "configuration": {
       "title": "Copilot Premium Usage Monitor",
       "properties": {
@@ -159,6 +183,50 @@
           "default": "",
           "markdownDescription": "Optional Codicon name (without $() ) to force a specific status bar icon when not in an error/stale state. Example: `graph`, `pulse`, `dashboard`, `repo`, `rocket`. Full list: https://microsoft.github.io/vscode-codicons/dist/codicon.html. Leave blank to use automatic account/organization and error icons.",
           "description": "Override status bar icon (Codicon name) when normal. Blank = automatic."
+        },
+        "copilotPremiumUsageMonitor.includedPremiumRequests": {
+          "type": "number",
+          "default": 0,
+          "description": "Optional: Manually specify the number of included premium requests per month for your plan. Set to 0 to use a selected built-in plan or the estimated value.",
+          "minimum": 0
+        },
+        "copilotPremiumUsageMonitor.pricePerPremiumRequest": {
+          "type": "number",
+          "default": 0.04,
+          "description": "Optional: Override the additional per-premium-request price (USD). Used to compute estimated overage cost when shown.",
+          "minimum": 0
+        },
+        "copilotPremiumUsageMonitor.selectedPlanId": {
+          "type": "string",
+          "enum": [
+            "",
+            "copilot-free",
+            "copilot-pro",
+            "copilot-proplus",
+            "copilot-business",
+            "copilot-enterprise"
+          ],
+          "default": "",
+          "description": "Optional: Selected built-in Copilot plan ID (populated from bundled plan data). Selecting a plan will populate included units and price settings.",
+          "enumDescriptions": [
+            "${cpum.plans.dropdown.placeholder}",
+            "${cpum.plans.copilot-free}",
+            "${cpum.plans.copilot-pro}",
+            "${cpum.plans.copilot-proplus}",
+            "${cpum.plans.copilot-business}",
+            "${cpum.plans.copilot-enterprise}"
+          ]
+        },
+        "copilotPremiumUsageMonitor.showSidebar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the usage overview sidebar in the activity bar. Requires restart to take effect."
+        },
+        "copilotPremiumUsageMonitor.enableExperimentalTrends": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Experimental: Show Usage History & Trends (usage snapshots and projections) in the panel and sidebar. Off by default while the feature stabilizes.",
+          "description": "Enable experimental Usage History & Trends visuals in panel and sidebar."
         }
       }
     }
@@ -167,6 +235,8 @@
     "onStartupFinished"
   ],
   "scripts": {
+    "update-plan-data": "node ./scripts/update-plan-data.mjs",
+    "sync-plan-enums": "node ./scripts/sync-plan-enums.mjs",
     "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/extension.js --minify",
     "build:dev": "tsc -p ./",
     "clean:full": "bash scripts/clean-artifacts.sh && git clean -fdX || true",
@@ -177,7 +247,7 @@
     "postbundle": "find out -type f ! -name extension.js ! -path 'out/test/*' -delete",
     "postversion": "git push --follow-tags",
     "prepack": "npm run clean && npm run build:bundle",
-    "prepublishOnly": "npm run clean && npm run build:bundle",
+    "prepublishOnly": "npm run clean && npm run update-plan-data && npm run sync-plan-enums && npm run build:bundle",
     "pretest:coverage": "npm run clean && npm run build:dev",
     "preversion": "npm run clean",
     "release": "npm run build:bundle && npx @vscode/vsce publish",

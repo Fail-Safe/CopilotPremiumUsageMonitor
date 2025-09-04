@@ -10,6 +10,15 @@
 				"vscode:prepublish"
 			],
 			"problemMatcher": "$tsc"
+		},
+		{
+			"label": "npm: build",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"run",
+				"vscode:prepublish"
+			]
 		}
 	]
 }
