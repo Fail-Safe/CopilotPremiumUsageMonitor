@@ -83,6 +83,24 @@ body {
     gap: 8px;
 }
 
+/* Right-side stacked meta container lives under the mode/plan controls */
+#right-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+/* Full-width notes row that sits directly under the buttons row */
+#controls-notes {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 6px;
+}
+
 h2 {
     margin-top: 0;
 }
@@ -168,6 +186,23 @@ h2 {
 .notice.warn {
     background: color-mix(in oklab, var(--vscode-editorWarning-foreground) 10%, transparent);
     border: 1px solid var(--vscode-editorWarning-foreground);
+}
+
+/* Compact pill for custom override hint on the right */
+.notice-custom-override {
+    border: 1px solid var(--vscode-button-primaryBorder, #0e639c);
+    color: var(--vscode-foreground);
+    background: transparent;
+    padding: 8px 10px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.limit-source-text {
+    font-size: 12px;
+    opacity: 0.7;
 }
 
 /* VS Code themed buttons */

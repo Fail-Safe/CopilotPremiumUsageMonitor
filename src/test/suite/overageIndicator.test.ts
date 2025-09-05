@@ -90,7 +90,7 @@ suite('Panel overage indicator', () => {
             }
         };
         messageHandler!(msg);
-        // Expect overage text present in summary HTML
-        assert.ok(/\(\+84 over\)/.test(summary.innerHTML), 'Expected overage text (+84 over) in summary');
+        // The webview label no longer shows explicit overage text; ensure the meter renders without it
+        assert.ok(!/\(\+84 over\)/.test(summary.innerHTML), 'Overage label should be removed from summary');
     });
 });

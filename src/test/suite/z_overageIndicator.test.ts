@@ -79,7 +79,7 @@ suite('Panel overage indicator', () => {
                 }
             };
             messageHandler!(msg);
-            assert.ok(/\(\+84 over\)/.test(summary.innerHTML), 'Expected overage text (+84 over) in summary');
+            assert.ok(!/\(\+84 over\)/.test(summary.innerHTML), 'Overage label should be removed from summary');
         } finally {
             // Restore globals
             (global as any).document = originalDocument;

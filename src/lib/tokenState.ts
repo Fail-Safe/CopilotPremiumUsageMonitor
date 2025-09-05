@@ -11,11 +11,13 @@ let vscode: any = undefined;
 const LEGACY_SUPPRESS_MS = 5000; // after clearing legacy, suppress detecting stale plaintext
 const LEGACY_RETAIN_MS = 5000;   // after migration keep, retain residual classification even if config read lags
 const SECURE_ASSUME_MS = 3000;   // after setting/migrating secure token, assume presence until secret read confirms
+const SECURE_SUPPRESS_MS = 1200; // after clearing secure token, suppress detecting it briefly to avoid stale reads
 
 // Internal transition expiry timestamps
 let legacySuppressUntil = 0;   // suppress showing legacy right after clearing
 let legacyRetainUntil = 0;     // retain legacy presence after keep decision even if config returns empty
 let secureAssumeUntil = 0;     // assume secure present before secret storage read catches up
+let secureSuppressUntil = 0;   // suppress secure presence right after clear to absorb eventual consistency
 
 export type TokenStateEnum = 'NONE' | 'LEGACY_ONLY' | 'SECURE_ONLY' | 'BOTH';
 
@@ -38,6 +40,8 @@ export function recordSecureSetAndLegacyCleared() {
     secureAssumeUntil = now + SECURE_ASSUME_MS;
     legacySuppressUntil = now + LEGACY_SUPPRESS_MS;
     legacyRetainUntil = 0; // clear retain window
+    // Clear secure suppression window since we just set a secure token
+    secureSuppressUntil = 0;
 }
 
 export function recordMigrationKeep() {
@@ -45,21 +49,25 @@ export function recordMigrationKeep() {
     secureAssumeUntil = now + SECURE_ASSUME_MS;
     legacyRetainUntil = now + LEGACY_RETAIN_MS;
     // Do not set suppress window; we *want* to treat legacy as present
+    // Also clear any prior secure suppression since we now have a secure token
+    secureSuppressUntil = 0;
 }
 
 export function recordSecureCleared() {
+    const now = Date.now();
     secureAssumeUntil = 0;
+    secureSuppressUntil = now + SECURE_SUPPRESS_MS;
     // legacy windows unaffected
 }
 
 export function resetAllTokenStateWindows() {
-    legacySuppressUntil = 0; legacyRetainUntil = 0; secureAssumeUntil = 0;
+    legacySuppressUntil = 0; legacyRetainUntil = 0; secureAssumeUntil = 0; secureSuppressUntil = 0;
 }
 
 export function deriveTokenState(inputs: DeriveInputs): DerivedTokenState {
     const now = inputs.now ?? Date.now();
     const legacyEffective = (inputs.legacyPresentRaw || now < legacyRetainUntil) && !(now < legacySuppressUntil);
-    const secureEffective = inputs.secretPresent || now < secureAssumeUntil;
+    const secureEffective = (inputs.secretPresent || now < secureAssumeUntil) && !(now < secureSuppressUntil);
     let state: TokenStateEnum;
     if (secureEffective && legacyEffective) state = 'BOTH'; else if (secureEffective) state = 'SECURE_ONLY'; else if (legacyEffective) state = 'LEGACY_ONLY'; else state = 'NONE';
     return {
@@ -74,7 +82,7 @@ export function deriveTokenState(inputs: DeriveInputs): DerivedTokenState {
 // Simple debug snapshot (used by extension when CPUM_TEST_DEBUG_TOKEN=1)
 export function debugSnapshot(): string {
     const now = Date.now();
-    return `windows suppressRemaining=${Math.max(0, legacySuppressUntil - now)} retainRemaining=${Math.max(0, legacyRetainUntil - now)} secureAssumeRemaining=${Math.max(0, secureAssumeUntil - now)}`;
+    return `windows suppressRemaining=${Math.max(0, legacySuppressUntil - now)} retainRemaining=${Math.max(0, legacyRetainUntil - now)} secureAssumeRemaining=${Math.max(0, secureAssumeUntil - now)} secureSuppressRemaining=${Math.max(0, secureSuppressUntil - now)}`;
 }
 
 // For tests to optionally wait until a particular predicate on the derived state passes.
@@ -90,4 +98,4 @@ export async function waitForTokenState(ctx: any, predicate: (s: DerivedTokenSta
     return false;
 }
 
-export const _test_tokenStateInternals = () => ({ legacySuppressUntil, legacyRetainUntil, secureAssumeUntil });
+export const _test_tokenStateInternals = () => ({ legacySuppressUntil, legacyRetainUntil, secureAssumeUntil, secureSuppressUntil });

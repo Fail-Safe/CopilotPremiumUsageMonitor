@@ -56,7 +56,7 @@ function showErrorBanner(msg) {
     return Math.round(num).toLocaleString();
   }
 
-  function renderSummary({ budget, spend, pct, warnAtPercent, dangerAtPercent, included, includedUsed, includedPct }) {
+  function renderSummary({ budget, spend, pct, warnAtPercent, dangerAtPercent, included, includedUsed, includedPct, view }) {
     const summary = document.getElementById('summary');
     const warnRaw = Number(warnAtPercent ?? 75);
     const dangerRaw = Number(dangerAtPercent ?? 90);
@@ -105,9 +105,20 @@ function showErrorBanner(msg) {
         }
       }
     } catch { }
-    let barColor = '#2d7d46'; // base green
-    if (pct >= danger) barColor = '#e51400';
-    else if (pct >= warn) barColor = '#f0ad4e';
+    // Prefer precomputed values from the extension view-model when available
+    if (view) {
+      try {
+        if (typeof view.budgetPct === 'number') pct = Math.max(0, Math.min(100, Math.round(view.budgetPct)));
+        if (typeof view.included === 'number') included = view.included;
+        if (typeof view.includedUsed === 'number') includedUsed = view.includedUsed;
+        if (typeof view.includedPct === 'number') includedPct = view.includedPct;
+      } catch { /* noop */ }
+    }
+    let barColor = (view && view.budgetColor) ? view.budgetColor : '#2d7d46'; // base green or centralized
+    if (!view || !view.budgetColor) {
+      if (pct >= danger) barColor = '#e51400';
+      else if (pct >= warn) barColor = '#f0ad4e';
+    }
     const startColor = lighten(barColor, 0.18);
 
     // Build the HTML with optional included requests meter
@@ -115,14 +126,18 @@ function showErrorBanner(msg) {
 
     // Add included requests meter if data is available
     if (included > 0) {
-      const includedBarColor = 'var(--chart-color, #007acc)'; // Blue color for included requests
+      const includedBarColor = (view && view.includedColor) ? view.includedColor : 'var(--chart-color, #007acc)'; // Prefer centralized
       const includedStartColor = lighten('#007acc', 0.18);
-      const over = Math.max(0, (includedUsed || 0) - (included || 0));
-      const shownNumerator = Math.min(includedUsed || 0, included || 0);
-      const shownPct = Math.min(100, Math.round(Math.min((includedPct || 0), 100)));
+      // Clamp numerator for display; do not show explicit overage count in the label
+      const shownNumerator = (view && typeof view.includedShown === 'number')
+        ? view.includedShown
+        : Math.min(includedUsed || 0, included || 0);
+      const shownPct = (view && typeof view.includedPct === 'number')
+        ? Math.max(0, Math.min(100, Math.round(view.includedPct)))
+        : Math.min(100, Math.round(Math.min((includedPct || 0), 100)));
       html += `
         <div class="meter-section">
-          <div class="meter-label">Included Premium Requests: ${formatRequests(shownNumerator)} / ${formatRequests(included)} (${shownPct}%)${over > 0 ? ` <span class="overage">(+${formatRequests(over)} over)</span>` : ''}</div>
+      <div class="meter-label">Included Premium Requests: ${formatRequests(shownNumerator)} / ${formatRequests(included)} (${shownPct}%)</div>
           <div class="meter">
             <div class="fill" style="width:${Math.min(includedPct, 100)}%; background: linear-gradient(to right, ${includedStartColor}, ${includedBarColor});"></div>
           </div>
@@ -298,6 +313,110 @@ function showErrorBanner(msg) {
             selectBtn.textContent = (cfg.plansSelectBtnText || 'Select built-in plan...');
           }
         } catch { }
+        // Ensure a right-side meta stack exists under the controls for compact annotations
+        try {
+          let meta = document.getElementById('right-meta');
+          if (!meta) {
+            meta = document.createElement('div');
+            meta.id = 'right-meta';
+            const rightGroup = document.querySelector('.controls .right-group');
+            if (rightGroup && rightGroup.parentElement) {
+              rightGroup.parentElement.insertBefore(meta, rightGroup.nextSibling);
+            } else {
+              // Fallback: append at end of controls container
+              const controls = document.querySelector('.controls');
+              if (controls) controls.appendChild(meta);
+            }
+          }
+        } catch { /* noop */ }
+
+        // Ensure a full-width notes area exists directly beneath the buttons row
+        try {
+          let notes = document.getElementById('controls-notes');
+          if (!notes) {
+            notes = document.createElement('div');
+            notes.id = 'controls-notes';
+            const controlsRow = document.querySelector('.controls.controls-row') || document.querySelector('.controls-row');
+            if (controlsRow && controlsRow.parentElement) {
+              controlsRow.parentElement.insertBefore(notes, controlsRow.nextSibling);
+            } else {
+              const controls = document.querySelector('.controls');
+              if (controls && controls.parentElement) {
+                controls.parentElement.insertBefore(notes, controls.nextSibling);
+              } else {
+                document.body.appendChild(notes);
+              }
+            }
+          }
+        } catch { /* noop */ }
+
+        // If a selected plan exists and a custom included override is set, surface a hint with one-click action beneath the buttons
+        try {
+          const hasPlan = !!cfg.selectedPlanId;
+          const customIncluded = Number(cfg.includedPremiumRequests || 0) > 0;
+          const plansData = cfg.generatedPlans && Array.isArray(cfg.generatedPlans.plans) ? cfg.generatedPlans : null;
+          if (hasPlan && customIncluded) {
+            let hint = document.getElementById('override-hint');
+            const notes = document.getElementById('controls-notes');
+            if (!hint) {
+              hint = document.createElement('div');
+              hint.id = 'override-hint';
+              hint.className = 'notice-custom-override';
+              const text = document.createElement('span');
+              text.id = 'override-hint-text';
+              text.textContent = 'Using custom Included value. Plan value is not applied.';
+              const btn = document.createElement('button');
+              btn.className = 'btn';
+              btn.textContent = 'Use plan value';
+              btn.addEventListener('click', () => {
+                vscode?.postMessage({ type: 'clearIncludedOverride' });
+                hint?.remove();
+              });
+              hint.appendChild(text);
+              hint.appendChild(btn);
+              const host = notes || document.getElementById('right-meta') || document.querySelector('.controls');
+              if (host) host.appendChild(hint);
+            } else {
+              // Move existing hint under the buttons if needed
+              const notes = document.getElementById('controls-notes');
+              if (notes && hint.parentElement !== notes) {
+                notes.appendChild(hint);
+              }
+            }
+          } else {
+            const hint = document.getElementById('override-hint');
+            if (hint) hint.remove();
+          }
+        } catch { /* noop */ }
+
+        // Show a compact line stating the source of the Included limit (Plan vs Custom vs Billing) under right controls
+        try {
+          const customIncluded = Number(cfg.includedPremiumRequests || 0) > 0;
+          const hasPlan = !!cfg.selectedPlanId;
+          let src = document.getElementById('limit-source');
+          if (!src) {
+            src = document.createElement('div');
+            src.id = 'limit-source';
+            src.className = 'limit-source-text';
+            const host = document.getElementById('right-meta') || document.querySelector('.controls');
+            if (host) host.appendChild(src);
+          }
+          if (customIncluded) {
+            src.textContent = 'Included limit: Custom value';
+          } else if (hasPlan) {
+            // Try to show plan name if available
+            let planName = cfg.selectedPlanId;
+            try {
+              const plans = cfg.generatedPlans && Array.isArray(cfg.generatedPlans.plans) ? cfg.generatedPlans.plans : [];
+              const found = plans.find(p => (p.id || p.name) === cfg.selectedPlanId);
+              if (found && found.name) planName = found.name;
+            } catch { /* noop */ }
+            src.textContent = `Included limit: GitHub plan (${planName})`;
+          } else {
+            // Explicitly indicate billing-derived limit when no custom override or plan is selected
+            src.textContent = 'Included limit: Billing data';
+          }
+        } catch { /* noop */ }
         // Secure token indicator (shows whenever a secure PAT exists). If residual plaintext also exists, use warning styling.
         let secureInd = document.getElementById('secure-token-indicator');
         if (cfg.hasSecurePat) {

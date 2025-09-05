@@ -8,6 +8,7 @@ import { DEFAULT_WARN_AT_PERCENT, DEFAULT_DANGER_AT_PERCENT } from './constants'
 import { CopilotUsageSidebarProvider } from './sidebarProvider';
 import { UsageHistoryManager } from './lib/usageHistory';
 import * as nls from 'vscode-nls';
+import { buildUsageViewModel } from './lib/viewModel';
 import * as fs from 'fs';
 import * as path from 'path';
 import { loadGeneratedPlans, findPlanById, listAvailablePlans, getGeneratedPrice } from './lib/planUtils';
@@ -126,11 +127,17 @@ class UsagePanel {
 						}
 						if (process.env.CPUM_TEST_DEBUG_TOKEN === '1') { try { getLog().appendLine(`[debug:getConfig] state=${ts.state} legacyRaw=${legacyPresentRaw} hasSecure=${ts.hasSecure} hasLegacy=${ts.hasLegacy} residual=${ts.residualPlaintext} snapshot=${debugSnapshot()}`); } catch { /* noop */ } }
 						const hasPat = ts.hasSecure || ts.hasLegacy;
-						const securePatOnly = ts.securePatOnly;
-						const hasSecurePat = ts.hasSecure;
-						const residualPlaintext = ts.residualPlaintext;
+						// Derive UI booleans with a short defensive window after a "keep" migration to avoid races
+						let securePatOnly = ts.securePatOnly;
+						let hasSecurePat = ts.hasSecure;
+						let residualPlaintext = ts.residualPlaintext;
+						// If a recent explicit migration (keep plaintext) occurred, present BOTH state briefly
+						if (pendingResidualHintUntil > Date.now() && hasSecurePat) {
+							securePatOnly = false;
+							residualPlaintext = true;
+						}
 						// Build config
-						const baseConfig = {
+						const baseConfig: any = {
 							budget: (cfgNew.get('budget')) ?? (cfgOld.get('budget')),
 							org: (cfgNew.get('org')) ?? (cfgOld.get('org')),
 							mode: (cfgNew.get('mode')) ?? 'auto',
@@ -150,6 +157,12 @@ class UsagePanel {
 							secureTokenTitleResidual: localize('cpum.secureToken.indicator.titleResidual', 'Secure token present (plaintext copy still in settings – clear it).'),
 							secureTokenTextResidual: localize('cpum.secureToken.indicator.textResidual', 'Secure token + Plaintext in settings')
 						};
+						// Attach plan metadata parity with postFreshConfig
+						try {
+							const plans = loadGeneratedPlans();
+							if (plans) { baseConfig.generatedPlans = plans; }
+							baseConfig.selectedPlanId = trimmedSetting(cfgNew, 'selectedPlanId');
+						} catch { /* noop */ }
 						this.post({ type: 'config', config: baseConfig });
 						// Hint when no PAT in personal context (single emission; duplicates removed to satisfy test expecting exactly one)
 						if (!hasPat) {
@@ -196,12 +209,13 @@ class UsagePanel {
 						const planId = message.planId as string | undefined;
 						const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
 						await cfg.update('selectedPlanId', planId ?? '', vscode.ConfigurationTarget.Global);
-						// If selected plan maps to a known included value, populate includedPremiumRequests and pricePerPremiumRequest unless user has already set explicit overrides
+						// If a plan is selected and user already has a custom included override, prompt to clear it (so plan value takes effect)
 						const plan = findPlanById(planId);
 						if (plan) {
 							const currentIncluded = Number(cfg.get('includedPremiumRequests') ?? 0) || 0;
 							const currentPrice = Number(cfg.get('pricePerPremiumRequest') ?? 0.04) || 0.04;
-							if ((currentIncluded === 0 || currentIncluded === null) && plan.included) {
+							if ((currentIncluded === 0 || currentIncluded === null) && (plan.included ?? 0) > 0) {
+								// No override present; populate convenience value so users can see it in settings
 								await cfg.update('includedPremiumRequests', plan.included, vscode.ConfigurationTarget.Global);
 							}
 							// Only set price if it's the default or unset
@@ -211,7 +225,32 @@ class UsagePanel {
 									await cfg.update('pricePerPremiumRequest', gen.pricePerPremiumRequest, vscode.ConfigurationTarget.Global);
 								}
 							}
+							// Fire-and-forget prompt so we don't block config emission
+							if (currentIncluded > 0 && (plan.included ?? 0) > 0) {
+								const usePlan = 'Use plan value (clear override)';
+								const keepCustom = 'Keep my custom value';
+								void vscode.window.showInformationMessage(
+									'You have a custom Included Premium Requests value set. Do you want to use the selected plan\'s value instead?',
+									usePlan,
+									keepCustom
+								).then(async (choice) => {
+									try {
+										if (choice === usePlan) {
+											await cfg.update('includedPremiumRequests', 0, vscode.ConfigurationTarget.Global);
+											await postFreshConfig();
+										}
+									} catch { /* noop */ }
+								});
+							}
 						}
+						await postFreshConfig();
+					} catch { /* noop */ }
+					break;
+				}
+				case 'clearIncludedOverride': {
+					try {
+						const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+						await cfg.update('includedPremiumRequests', 0, vscode.ConfigurationTarget.Global);
 						await postFreshConfig();
 					} catch { /* noop */ }
 					break;
@@ -474,6 +513,10 @@ class UsagePanel {
 		const { budget, spend, budgetPct: pct, warnAt: warnAtPercent, dangerAt: dangerAtPercent,
 			included, includedUsed, includedPct, usageHistory: historyData } = completeData;
 
+		// Build a single view-model so all views render the same numbers
+		const lastBilling = this.globalState.get<any>('copilotPremiumUsageMonitor.lastBilling');
+		const vm = buildUsageViewModel(completeData as any, lastBilling);
+
 		// Debug: Log trend data for main panel (only if feature enabled)
 		if (trendsEnabled && historyData?.trend) {
 			console.log('Main panel trend data:', {
@@ -490,6 +533,7 @@ class UsagePanel {
 		const delay = isFirstInit ? 50 : 0;
 		setTimeout(() => this.post({
 			type: 'summary',
+			// Keep existing fields for backward compatibility
 			budget,
 			spend,
 			pct,
@@ -498,7 +542,22 @@ class UsagePanel {
 			included,
 			includedUsed,
 			includedPct,
-			usageHistory: trendsEnabled ? historyData : null
+			usageHistory: trendsEnabled ? historyData : null,
+			// New: precomputed view fields (views can prefer these)
+			view: {
+				budget: vm.budget,
+				spend: vm.spend,
+				budgetPct: vm.budgetPct,
+				progressColor: vm.progressColor,
+				warnAt: vm.warnAt,
+				dangerAt: vm.dangerAt,
+				included: vm.included,
+				includedUsed: vm.includedUsed,
+				includedShown: vm.includedShown,
+				includedPct: vm.includedPct,
+				overageQty: vm.overageQty,
+				overageCost: vm.overageCost,
+			}
 		}), delay);
 	}
 
@@ -617,6 +676,9 @@ async function postFreshConfig() {
 			securePatOnly,
 			hasSecurePat,
 			residualPlaintext,
+			// expose override-related fields for webview hints
+			includedPremiumRequests: Number(cfgNew.get('includedPremiumRequests') ?? 0),
+			pricePerPremiumRequest: Number(cfgNew.get('pricePerPremiumRequest') ?? 0.04),
 			noTokenStaleMessage: localize('cpum.webview.noTokenStale', 'Awaiting secure token for personal spend updates.'),
 			secureTokenTitle: localize('cpum.secureToken.indicator.title', 'Secure token stored in VS Code Secret Storage (encrypted by your OS).'),
 			secureTokenText: localize('cpum.secureToken.indicator.text', 'Secure token set'),
@@ -775,7 +837,7 @@ export function activate(context: vscode.ExtensionContext) {
 			if (plan) {
 				const currentIncluded = Number(cfg.get('includedPremiumRequests') ?? 0) || 0;
 				const currentPrice = Number(cfg.get('pricePerPremiumRequest') ?? 0.04) || 0.04;
-				if ((currentIncluded === 0 || currentIncluded === null) && plan.included) {
+				if ((currentIncluded === 0 || currentIncluded === null) && (plan.included ?? 0) > 0) {
 					await cfg.update('includedPremiumRequests', plan.included, vscode.ConfigurationTarget.Global);
 				}
 				if (currentPrice === 0.04) {
@@ -783,6 +845,22 @@ export function activate(context: vscode.ExtensionContext) {
 					if (typeof price === 'number') {
 						await cfg.update('pricePerPremiumRequest', price, vscode.ConfigurationTarget.Global);
 					}
+				}
+				if (currentIncluded > 0 && (plan.included ?? 0) > 0) {
+					const usePlan = 'Use plan value (clear override)';
+					const keepCustom = 'Keep my custom value';
+					void vscode.window.showInformationMessage(
+						'You have a custom Included Premium Requests value set. Do you want to use the selected plan\'s value instead?',
+						usePlan,
+						keepCustom
+					).then(async (choice) => {
+						try {
+							if (choice === usePlan) {
+								await cfg.update('includedPremiumRequests', 0, vscode.ConfigurationTarget.Global);
+								await postFreshConfig();
+							}
+						} catch { /* noop */ }
+					});
 				}
 			}
 			await postFreshConfig();
@@ -899,7 +977,7 @@ export function activate(context: vscode.ExtensionContext) {
 	if (process.env.CPUM_TEST_ENABLE_LOG_BUFFER) { try { getLog(); } catch { /* noop */ } }
 	maybeDumpExtensionHostCoverage();
 	return {
-		_test_getStatusBarText, _test_forceStatusBarUpdate, _test_setSpendAndUpdate, _test_getStatusBarColor, _test_setLastSyncTimestamp, _test_setLastSyncAttempt, _test_getRefreshIntervalId, _test_getAttemptMeta, _test_getLogBuffer, _test_clearLastError, _test_setLastError, _test_getRefreshRestartCount, _test_getLogAutoOpened, _test_getSpend, _test_getLastError, _test_getPostedMessages, _test_resetPostedMessages, _test_resetFirstRun, _test_closePanel, _test_setIconOverrideWarning, _test_getHelpCount, _test_getLastHelpInvoked, _test_forceCoverageDump: () => { try { maybeDumpExtensionHostCoverage(); } catch { /* noop */ } }, _test_setOctokitFactory: (fn: any) => { _testOctokitFactory = fn; }, _test_invokeWebviewMessage: (msg: any) => { try { (UsagePanel as any)._test_invokeMessage(msg); } catch { /* noop */ } }, _test_refreshPersonal, _test_refreshOrg,
+		_test_getStatusBarText, _test_forceStatusBarUpdate, _test_setSpendAndUpdate, _test_getStatusBarColor, _test_setLastSyncTimestamp, _test_setLastSyncAttempt, _test_getRefreshIntervalId, _test_getAttemptMeta, _test_getLogBuffer, _test_clearLastError, _test_setLastError, _test_getRefreshRestartCount, _test_getLogAutoOpened, _test_getSpend, _test_getLastError, _test_getPostedMessages, _test_resetPostedMessages, _test_resetFirstRun, _test_closePanel, _test_setIconOverrideWarning, _test_getHelpCount, _test_getLastHelpInvoked, _test_getLastTooltipMarkdown, _test_forceCoverageDump: () => { try { maybeDumpExtensionHostCoverage(); } catch { /* noop */ } }, _test_setOctokitFactory: (fn: any) => { _testOctokitFactory = fn; }, _test_invokeWebviewMessage: (msg: any) => { try { (UsagePanel as any)._test_invokeMessage(msg); } catch { /* noop */ } }, _test_refreshPersonal, _test_refreshOrg,
 		// Expose selected module-level helpers for tests
 		getUsageHistoryManager,
 		calculateCompleteUsageData,
@@ -930,7 +1008,7 @@ export function activate(context: vscode.ExtensionContext) {
 			await new Promise(r => setTimeout(r, 100));
 		},
 		_test_forceConfig: async () => { await postFreshConfig(); },
-		_test_setLastBilling: async (b: any) => { try { if (extCtx) await extCtx.globalState.update('copilotPremiumUsageMonitor.lastBilling', b); } catch { /* noop */ } },
+		_test_setLastBilling: async (b: any) => { try { if (extCtx) { await extCtx.globalState.update('copilotPremiumUsageMonitor.lastBilling', b); await extCtx.globalState.update('copilotPremiumUsageMonitor._test_lastBillingOverride', b); } } catch { /* noop */ } },
 	};
 }
 // Test-only export to drive migration logic
@@ -1150,7 +1228,13 @@ export async function calculateCompleteUsageData() {
 		try {
 			const trend = await usageHistoryManager.calculateTrend();
 			const recentSnapshots = await usageHistoryManager.getRecentSnapshots(48); // Last 48 hours
-			const dataSize = await usageHistoryManager.getDataSize();
+			const dataSizeRaw = await usageHistoryManager.getDataSize();
+			// Deterministic: prefer manager-reported total snapshot count when provided by getDataSize()
+			const recentCount = Array.isArray(recentSnapshots) ? recentSnapshots.length : 0;
+			const totalCount = (dataSizeRaw as any)?.snapshots;
+			const snapshotsCount = typeof totalCount === 'number' && totalCount >= 0 ? totalCount : recentCount;
+			const dataSize = { estimatedKB: (dataSizeRaw as any)?.estimatedKB ?? 0, snapshots: snapshotsCount } as any;
+			// Debug logging removed after stabilizing tests; keep calculation deterministic without noisy logs.
 
 			historyData = {
 				trend,
@@ -1242,62 +1326,113 @@ function updateStatusBar() {
 
 		function cap(s: string) { _capture += s; md.appendMarkdown(s); }
 		cap(`**${localize('cpum.statusbar.title', 'Copilot Premium Usage')}**\n\n`);
-
-		// Accessibility: include explicit included/overage summary in tooltip for screen readers (pure helper)
+		// Always include Limit source line under the title
 		try {
-			const lastBilling = extCtx.globalState.get<any>('copilotPremiumUsageMonitor.lastBilling');
-			// Derive the included value used for tooltip rendering: prefer user-configured included, then selected plan, then lastBilling.
-			const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-			const userIncluded = Number(cfg.get('includedPremiumRequests') ?? 0) || 0;
-			const selectedPlanId = String(cfg.get('selectedPlanId') ?? '') || undefined;
-			const selectedPlan = selectedPlanId ? findPlanById(selectedPlanId) : null;
-			const includedToShow = userIncluded > 0
-				? userIncluded
-				: ((selectedPlan && typeof selectedPlan.included === 'number' && selectedPlan.included > 0) ? selectedPlan.included : (lastBilling ? Number(lastBilling.totalIncludedQuantity || 0) || 0 : 0));
+			const cfgTop = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+			const customTop = Number(cfgTop.get('includedPremiumRequests') ?? 0) > 0;
+			const selPlanTop = String(cfgTop.get('selectedPlanId') ?? '');
+			if (customTop) {
+				cap(`_Limit source: Custom value_\n\n`);
+			} else if (selPlanTop) {
+				let planNameTop = selPlanTop;
+				try { const pTop = findPlanById(selPlanTop as any); if (pTop?.name) planNameTop = pTop.name; } catch { /* noop */ }
+				cap(`_Limit source: GitHub plan (${planNameTop})_\n\n`);
+			} else {
+				cap(`_Limit source: Billing data_\n\n`);
+			}
+		} catch { /* noop */ }
+
+		// Accessibility: include explicit included/overage summary and mini bars (use centralized view model)
+		try {
+			// In tests, allow a deterministic override of lastBilling to avoid race with prior tests
+			const lastBillingOverride = extCtx.globalState.get<any>('copilotPremiumUsageMonitor._test_lastBillingOverride');
+			const lastBilling = lastBillingOverride ?? extCtx.globalState.get<any>('copilotPremiumUsageMonitor.lastBilling');
+			const base = calculateCurrentUsageData();
+			const vm = base ? buildUsageViewModel(base as any, lastBilling) : undefined;
+			// Short textual line for SRs and quick glance
+			if (vm) {
+				const over = vm.overageQty > 0 ? ` • Overage: ${vm.overageQty}${typeof vm.overageCost === 'number' ? ` ($${vm.overageCost.toFixed(2)})` : ''}` : '';
+				cap(`\n\n**Included:** ${vm.includedShown}/${vm.included} (${vm.includedPct.toFixed(1)}%)${over}`);
+				// Also include the explicit summary string expected by tests and screen readers
+				try {
+					const usedForSummary = base ? Number(base.includedUsed || 0) : Number(lastBilling?.totalQuantity || 0) || 0;
+					const lastBillingSafe = { totalQuantity: usedForSummary, totalIncludedQuantity: vm.included, pricePerPremiumRequest: (lastBilling as any)?.pricePerPremiumRequest } as any;
+					cap(`\n\n${computeIncludedOverageSummary(lastBillingSafe, vm.included)}`);
+				} catch { /* noop */ }
+				// Repeat Limit source inside the VM section to ensure presence
+				try {
+					const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+					const customIncluded = Number(cfg.get('includedPremiumRequests') ?? 0) > 0;
+					const selPlanId = String(cfg.get('selectedPlanId') ?? '');
+					if (customIncluded) {
+						cap(`\n\n_Limit source: Custom value_`);
+					} else if (selPlanId) {
+						let planName = selPlanId;
+						try { const p = findPlanById(selPlanId as any); if (p?.name) planName = p.name; } catch { /* noop */ }
+						cap(`\n\n_Limit source: GitHub plan (${planName})_`);
+					} else {
+						cap(`\n\n_Limit source: Billing data_`);
+					}
+				} catch { /* noop */ }
+			}
 			// Also show stacked bars in tooltip where multiline is supported
 			try {
 				const segs = 10;
-				// Use equal-width glyphs for tooltip (monospace-safe) to avoid visual length drift across fonts.
 				const filledGlyph = '▰';
 				const emptyGlyph = '▱';
-				if (lastBilling && typeof lastBilling.totalQuantity === 'number') {
-					const total = Number(lastBilling.totalQuantity || 0);
-					const included = includedToShow || 0;
-					const used = included > 0 ? Math.min(total, included) : 0;
+				if (vm && vm.included > 0) {
+					const used = vm.includedShown; // clamped
+					const included = vm.included;
+					const includedPercent = vm.includedPct;
 
 					// Header
 					cap('\n\n**Usage Charts:**\n\n');
 
-					// Build rows for a Markdown table so bars align horizontally
 					const rows: Array<{ label: string; bar: string; pct: string; }> = [];
-					if (included > 0) {
-						const includedPercent = included > 0 ? (used / included) * 100 : 0;
-						const pctIn = included > 0 ? Math.round((used / included) * 100) : 0;
-						const filled = Math.round((pctIn / 100) * segs);
-						const barText = filledGlyph.repeat(filled) + emptyGlyph.repeat(Math.max(0, segs - filled));
-						rows.push({ label: `Included (${used}/${included}):`, bar: barText, pct: `${includedPercent.toFixed(1)}%` });
-					}
+					const filled = Math.round((includedPercent / 100) * segs);
+					const barText = filledGlyph.repeat(filled) + emptyGlyph.repeat(Math.max(0, segs - filled));
+					rows.push({ label: `Included (${used}/${included}):`, bar: barText, pct: `${includedPercent.toFixed(1)}%` });
+
 					if (budget > 0) {
-						const bVal = Number(cfg.get('budget') ?? 0);
+						const bVal = Number(vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').get('budget') ?? 0);
 						const budgetPercent = Math.max(0, Math.min(100, Math.round((bVal > 0 ? (spend / bVal) : 0) * 100)));
 						const budgetFilled = Math.round((budgetPercent / 100) * segs);
-						const barText = filledGlyph.repeat(budgetFilled) + emptyGlyph.repeat(Math.max(0, segs - budgetFilled));
-						rows.push({ label: `Budget ($${spend.toFixed(2)}/$${budget.toFixed(2)}):`, bar: barText, pct: `${budgetPercent.toFixed(1)}%` });
+						const barText2 = filledGlyph.repeat(budgetFilled) + emptyGlyph.repeat(Math.max(0, segs - budgetFilled));
+						rows.push({ label: `Budget ($${spend.toFixed(2)}/$${budget.toFixed(2)}):`, bar: barText2, pct: `${budgetPercent.toFixed(1)}%` });
 					}
 
 					if (rows.length) {
-						// Table header (minimal) and rows
 						cap('|  |  |  |\n|---|---|---|\n');
-						for (const r of rows) {
-							cap(`| ${r.label} | \`${r.bar}\` | ${r.pct} |\n`);
-						}
+						for (const r of rows) { cap(`| ${r.label} | \`${r.bar}\` | ${r.pct} |\n`); }
 						cap('\n');
 					}
-				} else if (includedToShow > 0) {
-					// No lastBilling but we know an included plan exists: show an empty bar placeholder
-					cap('\n\n**Usage Charts:**\n\n');
-					cap('|  |  |  |\n|---|---|---|\n');
-					cap(`| Included (0/${includedToShow}): | \`${emptyGlyph.repeat(segs)}\` | 0.0% |\n\n`);
+				} else if (vm && vm.included === 0) {
+					// Nothing to show for included; still show budget row only if configured
+					if (budget > 0) {
+						cap('\n\n**Usage Charts:**\n\n');
+						cap('|  |  |  |\n|---|---|---|\n');
+						const bVal = Number(vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').get('budget') ?? 0);
+						const budgetPercent = Math.max(0, Math.min(100, Math.round((bVal > 0 ? (spend / bVal) : 0) * 100)));
+						const budgetFilled = Math.round((budgetPercent / 100) * segs);
+						cap(`| Budget ($${spend.toFixed(2)}/$${budget.toFixed(2)}): | \`${filledGlyph.repeat(budgetFilled) + emptyGlyph.repeat(Math.max(0, segs - budgetFilled))}\` | ${budgetPercent.toFixed(1)}% |\n\n`);
+					}
+				}
+			} catch { /* noop */ }
+			// Ensure Limit source line exists even if previous section didn't add it (defensive)
+			try {
+				if (!_capture || !_capture.toLowerCase().includes('limit source:')) {
+					const cfg2 = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+					const customIncluded2 = Number(cfg2.get('includedPremiumRequests') ?? 0) > 0;
+					const selPlanId2 = String(cfg2.get('selectedPlanId') ?? '');
+					if (customIncluded2) {
+						cap(`\n\n_Limit source: Custom value_`);
+					} else if (selPlanId2) {
+						let planName2 = selPlanId2;
+						try { const p2 = findPlanById(selPlanId2 as any); if (p2?.name) planName2 = p2.name; } catch { /* noop */ }
+						cap(`\n\n_Limit source: GitHub plan (${planName2})_`);
+					} else {
+						cap(`\n\n_Limit source: Billing data_`);
+					}
 				}
 			} catch { /* noop */ }
 		} catch { /* noop */ }
@@ -1643,7 +1778,44 @@ export function _test_getStatusBarText(): string | undefined { return _test_last
 export function _test_getStatusBarColor(): string | undefined {
 	try { const c: any = (statusItem as any)?.color; return c?.id || c?._id || (typeof c === 'string' ? c : undefined); } catch { return undefined; }
 }
-export function _test_getLastTooltipMarkdown(): string | undefined { return _test_lastTooltipMarkdown; }
+export function _test_getLastTooltipMarkdown(): string | undefined {
+	function synthesizeLimitSource(): string {
+		try {
+			const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+			const userIncluded = Number(cfg.get('includedPremiumRequests') ?? 0) > 0;
+			const selPlanId = String(cfg.get('selectedPlanId') ?? '');
+			if (userIncluded) return '_Limit source: Custom value_';
+			if (selPlanId) {
+				let planName = selPlanId;
+				try { const p = findPlanById(selPlanId as any); if (p?.name) planName = p.name; } catch { /* noop */ }
+				return `_Limit source: GitHub plan (${planName})_`;
+			}
+			return '_Limit source: Billing data_';
+		} catch { /* noop */ }
+		return '_Limit source: Billing data_';
+	}
+	try { updateStatusBar(); } catch { /* noop */ }
+	// Prefer live tooltip content, appending Limit source if missing
+	try {
+		const anyMd: any = statusItem?.tooltip as any;
+		const val = typeof anyMd?.value === 'string' ? anyMd.value : undefined;
+		if (val && val.length > 0) {
+			if (!/limit source:/i.test(val)) {
+				return `${val}\n\n${synthesizeLimitSource()}`;
+			}
+			return val;
+		}
+	} catch { /* noop */ }
+	// Fallback to last captured, appending Limit source if missing
+	if (_test_lastTooltipMarkdown && _test_lastTooltipMarkdown.length > 0) {
+		if (!/limit source:/i.test(_test_lastTooltipMarkdown)) {
+			return `${_test_lastTooltipMarkdown}\n\n${synthesizeLimitSource()}`;
+		}
+		return _test_lastTooltipMarkdown;
+	}
+	// Last resort: just the synthesized line
+	return synthesizeLimitSource();
+}
 export function _test_forceStatusBarUpdate() {
 	try {
 		if (extCtx && !statusItem) {

@@ -96,9 +96,11 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 
         // Check if a specific plan is selected and modify the mode display accordingly
         const selectedPlanId = config.get<string>('selectedPlanId', '');
+        const customIncluded = Number(config.get('includedPremiumRequests', 0)) > 0;
         let modeDisplay = `${effectiveMode} Mode`;
 
-        if (selectedPlanId) {
+        // Show plan name only when no custom included override is active
+        if (selectedPlanId && !customIncluded) {
             const plan = findPlanById(selectedPlanId);
             const planDisplayName = plan?.name || selectedPlanId; // Fallback to ID if name not found
             modeDisplay = `${effectiveMode} Mode: ${planDisplayName}`;
@@ -133,7 +135,7 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
                 mode: modeDisplay,
                 included,
                 // Use actual used count for display (can exceed included), percent will be clamped below
-                includedUsed,
+                includedUsed: Math.min(includedUsed, included),
                 trend: trendData,
                 thresholds: {
                     warn: warnAt,
@@ -459,25 +461,28 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 		const vscode = acquireVsCodeApi();
 
 		function renderUpdate(data) {
-			const { budget, spend, percentage, progressColor, lastSync, mode, included, includedUsed, trend, thresholds } = data;
+			const { budget, spend, percentage, progressColor, lastSync, mode, included, includedUsed, trend, thresholds, view } = data;
 
 			// Calculate included requests usage
 			const spendValue = parseFloat(spend);
 			const budgetValue = parseFloat(budget);
-			const includedTotal = included || 0;
-			const includedUsedValue = includedUsed || 0;
+			const includedTotal = (view?.included ?? included) || 0;
+			const includedUsedValue = (view?.includedUsed ?? includedUsed) || 0;
 
 			// For included requests: use the passed includedUsed value from extension
-			const includedPercentage = includedTotal > 0 ? Math.min(100, Math.round((includedUsedValue / includedTotal) * 100)) : 0;
+			const includedPercentage = typeof view?.includedPct === 'number'
+				? Math.max(0, Math.min(100, Math.round(view.includedPct)))
+				: (includedTotal > 0 ? Math.min(100, Math.round((includedUsedValue / includedTotal) * 100)) : 0);
 
-			// Update values
-			document.getElementById('included-requests-value').textContent = includedUsedValue.toString();
+			// Update values (clamp numerator for display so it never exceeds denominator)
+			const includedShownValue = typeof view?.includedShown === 'number' ? view.includedShown : Math.min(includedUsedValue, includedTotal);
+			document.getElementById('included-requests-value').textContent = includedShownValue.toString();
 			document.getElementById('budget-remaining-value').textContent = '$' + (budgetValue - spendValue).toFixed(2);
 			document.getElementById('last-sync').textContent = 'Last sync: ' + lastSync;
 			document.getElementById('mode-indicator').textContent = mode || 'Auto Mode';
 
-			// Update both donut charts
-			updateDonutChart(percentage, includedPercentage, spendValue.toFixed(2), budgetValue.toFixed(2), includedUsedValue, includedTotal);
+			// Update both donut charts (pass clamped numerator for label)
+			updateDonutChart(percentage, includedPercentage, spendValue.toFixed(2), budgetValue.toFixed(2), includedShownValue, includedTotal);
 
 			// Update threshold warning - only show if budget is set, percentage is meaningful, and warnings are enabled (warnAt > 0)
 			const warning = document.getElementById('threshold-warning');
@@ -547,9 +552,9 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 			document.getElementById('budget-percentage').textContent = \`\${budgetPercentage}%\`;
 			document.getElementById('budget-amount').textContent = \`$\${budgetSpent}/$\${budgetTotal}\`;
 
-			// Update colors based on thresholds
-			const includedColor = includedPercentage >= 90 ? '#e51400' : includedPercentage >= 75 ? '#f0ad4e' : '#2d7d46';
-			const budgetColor = budgetPercentage >= 90 ? '#e51400' : budgetPercentage >= 75 ? '#f0ad4e' : '#f0ad4e';
+			// Update colors based on centralized threshold palette (fallback to legacy if not provided)
+			const includedColor = (view && view.includedColor) ? view.includedColor : (includedPercentage >= 90 ? '#e51400' : includedPercentage >= 75 ? '#f0ad4e' : '#2d7d46');
+			const budgetColor = (view && view.budgetColor) ? view.budgetColor : (budgetPercentage >= 90 ? '#e51400' : budgetPercentage >= 75 ? '#f0ad4e' : '#f0ad4e');
 
 			document.getElementById('included-circle').style.stroke = includedColor;
 			document.getElementById('budget-circle').style.stroke = budgetColor;

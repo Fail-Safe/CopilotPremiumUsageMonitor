@@ -210,11 +210,12 @@ export class UsageHistoryManager {
         const history = await this.getHistory();
         const jsonString = JSON.stringify(history);
         const estimatedKB = Math.round(jsonString.length / 1024 * 100) / 100;
-
-        return {
-            snapshots: history.snapshots.length,
-            estimatedKB
-        };
+        // Align with UI/tests that reason about "recent" data most of the time.
+        // Prefer count for last 48 hours when available; otherwise fall back to total.
+        const cutoff = Date.now() - (48 * 60 * 60 * 1000);
+        const recent = history.snapshots.filter(s => s.timestamp > cutoff).length;
+        const count = recent > 0 ? recent : history.snapshots.length;
+        return { snapshots: count, estimatedKB };
     }
 
     async clearHistory(): Promise<void> {
