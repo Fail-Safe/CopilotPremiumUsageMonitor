@@ -362,10 +362,11 @@ class UsagePanel {
 							else if (e?.message?.includes('401') || e?.message?.includes('403')) { msg = 'Authentication error: Please sign in or provide a valid PAT.'; allowFallback = false; }
 							else if (e?.message?.toLowerCase()?.includes('network')) { msg = 'Network error: Unable to reach GitHub.'; }
 							else if (e?.message) { msg = `Failed to sync org metrics: ${e.message}`; }
+							// Persist the failure so tests and status consumers can observe it.
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg); } catch { /* noop */ }
+							try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', Date.now()); } catch { /* noop */ }
 							if (!allowFallback) {
 								this.post({ type: 'error', message: msg });
-								await this.globalState.update('copilotPremiumUsageMonitor.lastSyncError', msg);
-								try { await this.globalState.update('copilotPremiumUsageMonitor.lastSyncAttempt', Date.now()); } catch { /* noop */ }
 								void vscode.window.showErrorMessage(msg);
 								maybeAutoOpenLog();
 								updateStatusBar();
