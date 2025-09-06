@@ -22,6 +22,23 @@ Tips:
 
 ---
 
+## Deterministic Screenshot States
+
+To create consistent Marketplace screenshots, two helper commands are included (developer convenience):
+
+- `Copilot Premium Usage Monitor: Prepare Screenshot State (Normal)`
+  - Seeds a plan (Copilot Pro+), 131/1500 included usage, and $2/$10 budget.
+  - Opens the panel and refreshes the status bar for a clean capture.
+
+- `Copilot Premium Usage Monitor: Prepare Screenshot State (Error)`
+  - Posts a network error to the panel and sets an error icon in the status bar.
+
+Tips for capturing:
+- Hide unrelated status bar items via the status bar gear menu for a clean UI.
+- Keep OS/UI scale at 100% where possible to preserve crisp bar glyphs.
+- You can adjust colors with `useThemeStatusColor` if you want fixed green/yellow/red styling in screenshots.
+
+
 ## Development / Testing
 
 ### Scripts Overview
@@ -57,6 +74,11 @@ Location: `src/test/`
 | Full merge | `npm run test:coverage:full` | Instruments compiled JS, runs unit + activation tests, merges host + unit coverage, updates badge |
 
 The badge JSON consumed by README uses `scripts/coverage-badge.mjs`.
+
+### CI coverage enforcement
+
+The repository CI enforces a coverage gate (nyc) configured in `package.json` aiming for high confidence across metrics; local `npm run test:coverage:full` generates the merged coverage report and `coverage/lcov.info` suitable for CI upload.
+
 
 ### Helpful Environment Variables
 

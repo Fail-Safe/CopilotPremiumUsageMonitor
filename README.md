@@ -22,27 +22,17 @@ You’ll immediately get a status bar percentage + progress bar. Open the panel 
 
 ## 📸 Screenshots
 
-| Panel | Status Bar |
-|-------|------------|
-| ![Panel showing budget, spend, thresholds](./media/screenshot-panel.png) | ![Status bar item with percent and bar](./media/screenshot-statusbar.png) |
+### Dark mode
 
----
+Panel (dark) | Sidebar (dark) | Status bar (dark) | Fullscreen (dark)
+---|---|---|---
+![Panel dark](./media/sc-webview-dark.png) | ![Sidebar dark](./media/sc-sidebar-dark.png) | ![Statusbar dark](./media/sc-statusbar-dark.png) | ![Fullscreen dark](./media/sc-fullscreen-dark.png)
 
-## 🎯 Preparing Deterministic States for Screenshots
+### Light mode
 
-To create consistent Marketplace screenshots, two helper commands are included:
-
-- Copilot Premium Usage Monitor: Prepare Screenshot State (Normal)
-  - Seeds a plan (Copilot Pro+), 131/1500 included usage, and $2/$10 budget.
-  - Opens the panel and refreshes the status bar for a clean capture.
-
-- Copilot Premium Usage Monitor: Prepare Screenshot State (Error)
-  - Posts a network error to the panel and sets an error icon in the status bar.
-
-Tips:
-- Hide unrelated status bar items via the status bar gear menu for a clean UI.
-- Keep OS/UI scale at 100% where possible to preserve crisp bar glyphs.
-- You can adjust colors with `useThemeStatusColor` if you want fixed green/yellow/red styling.
+Panel (light) | Sidebar (light) | Status bar (light) | Fullscreen (light)
+---|---|---|---
+![Panel light](./media/sc-webview-light.png) | ![Sidebar light](./media/sc-sidebar-light.png) | ![Statusbar light](./media/sc-statusbar-light.png) | ![Fullscreen light](./media/sc-fullscreen-light.png)
 
 ---
 
@@ -58,10 +48,6 @@ Tips:
 - Help banner (first run) to guide correct auth + PAT setup.
 - Output channel logging & on‑error auto open option.
 - Zero external telemetry; only talks to `api.github.com`.
-
-Reliability & Quality:
-
-- CI enforces 95% minimum across lines, branches, functions, and statements (nyc). The coverage badge reflects line coverage from the latest main branch build.
 
 ---
 
@@ -240,4 +226,3 @@ MIT – see [LICENSE](./LICENSE).
 ## ℹ Disclaimer
 
 Not affiliated with or endorsed by GitHub. “GitHub” and “Copilot” are trademarks of their respective owners.
-
