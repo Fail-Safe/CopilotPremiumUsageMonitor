@@ -1580,10 +1580,13 @@ function updateStatusBar() {
 				const segs = 10;
 				const filledGlyph = '▰';
 				const emptyGlyph = '▱';
-				if (vm && vm.included > 0) {
-					const used = vm.includedShown; // clamped
-					const included = vm.included;
-					const includedPercent = vm.includedPct;
+				// Determine included values using viewModel or fallback to lastBilling snapshot (lbAny)
+				const fallbackIncluded = Number(lbAny.totalIncludedQuantity ?? 0);
+				const hasIncluded = vm ? (Number(vm.included ?? 0) > 0) : fallbackIncluded > 0;
+				if (vm && hasIncluded) {
+					const used = vm.includedShown ?? Number(lbAny.totalQuantity ?? 0); // clamped or fallback
+					const included = Number(vm.included ?? fallbackIncluded);
+					const includedPercent = Number(vm.includedPct ?? (included > 0 ? Math.max(0, Math.min(100, Math.round((used / included) * 100))) : 0));
 
 					// Header
 					cap(`\n\n**${localize('cpum.statusbar.usageCharts', 'Usage Charts:')}**\n\n`);
