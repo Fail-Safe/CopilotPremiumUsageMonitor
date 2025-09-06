@@ -130,7 +130,7 @@ If you keep the plaintext value temporarily, functionality is unchanged; the ind
 
 It’s safe to sync everything **except** the token. Add to ignored settings:
 
-```jsonc
+```json
 "settingsSync.ignoredSettings": ["copilotPremiumUsageMonitor.token"]
 ```
 
@@ -153,7 +153,7 @@ It’s safe to sync everything **except** the token. Add to ignored settings:
 
 1. Set `budget` and (optionally) `org`.
 2. Add PAT (for personal spend) OR sign in (for org metrics).
-3. Status bar shows: `icon percent% ▓▓▓░ (stale)` (stale tag appears only after errors).
+3. Status bar shows: an icon, a percentage and a small progress bar; a `(stale)` tag appears only after errors.
 4. Tooltip reveals dollars, thresholds, last (successful) sync with relative time.
 5. Panel: Press Refresh, change Mode, open Settings, Help, or Sign in.
 
@@ -171,6 +171,7 @@ Color logic: green (under warn), yellow (>= warn), red (>= danger), error stylin
 | Icon override ignored | Invalid Codicon name | Use a valid name from the Codicon catalog. |
 | Stale tag persists | Last sync failed | Check Output Channel; resolve auth/network; manually Refresh. |
 | No color (just theme fg) | `useThemeStatusColor` true | Disable that setting to always colorize usage bar. |
+| Incorrect / out-of-date data | Stale cache or transient API hiccup | Use the Refresh button in the panel or sidebar to bypass cache and re-fetch data immediately. |
 
 Extra diagnostics: run **Show Logs** (or enable `showLogOnError`).
 

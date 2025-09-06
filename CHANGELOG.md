@@ -6,10 +6,20 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 
 ## [Unreleased]
 ### Planned / Proposed
-- Optional command to force refresh ignoring cache.
+<!-- No unreleased items at this time. -->
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
 <!-- Placeholder for upcoming release notes. -->
+## [0.7.0] - 2025-09-06
+### Added
+- Display of Included Premium Requests usage and remaining included units in the panel and status bar (breaks out included vs billable requests).
+### Changed
+ - Status bar color behavior refined for included-request state: when not using the default theme the meter uses the included-state color (blue) until included units are exhausted, after which warn/danger thresholds apply.
+ - Panel tooltip and detail view now show included-request counts and a clear distinction between included and billable usage.
+### Fixed
+ - Fixed fallback color handling so included-state coloring does not persist after included units are consumed.
+### Internal
+ - Added unit and integration tests covering included-request display, tooltip breakdown, and status bar color transitions; documentation/screenshots updated accordingly.
 
 ## [0.6.2] - 2025-08-23
 ### Changed
@@ -86,7 +96,6 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 
 ## [0.4.7] - 2025-08-13
 ### Planned / Proposed
-- Optional command to force refresh ignoring cache.
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
 <!-- Placeholder for upcoming release notes. Add new sections (Added/Changed/Fixed/etc.) here. -->
@@ -105,7 +114,6 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 
 ## [0.4.5] - 2025-08-13
 ### Planned / Proposed
-- Optional command to force refresh ignoring cache.
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
 <!-- Placeholder for upcoming release notes. Add new sections (Added/Changed/Fixed/etc.) here. -->
@@ -114,7 +122,6 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 
 ## [0.4.4] - 2025-08-13
 ### Planned / Proposed
-- Optional command to force refresh ignoring cache.
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
 <!-- Placeholder for upcoming release notes. Add new sections (Added/Changed/Fixed/etc.) here. -->
@@ -123,7 +130,6 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 
 ## [0.4.3] - 2025-08-13
 ### Planned / Proposed
-- Optional command to force refresh ignoring cache.
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
 ### Added

@@ -1,0 +1,17 @@
+{
+    "version": "0.2",
+    "language": "en",
+    "words": [
+        "vscodeignore",
+        "preversion",
+        "postversion",
+        "Copilot",
+        "CopilotPremiumUsageMonitor",
+        "lcov"
+    ],
+    "ignorePaths": [
+        "node_modules/**",
+        "coverage/**",
+        "dist/**"
+    ]
+}
