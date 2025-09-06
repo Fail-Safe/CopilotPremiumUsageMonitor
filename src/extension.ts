@@ -1943,7 +1943,6 @@ async function fetchUserBillingUsage(username: string, token: string, opts: { ye
 		day: opts.day,
 		hour: opts.hour,
 	});
-	console.log(res.data);
 	const usageItems = (res.data).usageItems as BillingUsageItem[] | undefined;
 	const items = usageItems ?? [];
 	const copilotItems = items.filter((i) => i.product?.toLowerCase() === 'copilot');
