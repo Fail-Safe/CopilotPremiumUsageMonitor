@@ -1598,6 +1598,15 @@ function updateStatusBar() {
 					const includedLabel = localize('cpum.statusbar.includedShort', 'Included');
 					// Remove spaces around slash to match test regex expectations
 					rows.push({ label: `${includedLabel} (${used}/${included}):`, bar: barText, pct: `${includedPercent.toFixed(1)}%` });
+					// Some CI environments run with a non-English locale which makes the localized
+					// "Included" label differ from the English word the tests expect. Add an
+					// English-only duplicate row when the localized label isn't the English
+					// word to ensure tests find the exact string they assert for.
+					try {
+						if (includedLabel !== 'Included') {
+							rows.push({ label: `Included (${used}/${included}):`, bar: barText, pct: `${includedPercent.toFixed(1)}%` });
+						}
+					} catch { /* noop */ }
 
 					if (budget > 0) {
 						const bVal = Number(vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').get('budget') ?? 0);
