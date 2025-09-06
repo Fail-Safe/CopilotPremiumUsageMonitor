@@ -65,9 +65,13 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 				// Push a quick status message so UI feels alive
 				webviewView.webview.postMessage({ type: 'refreshing' });
 				// Try a background refresh, then update the view with latest data
-				void performAutoRefresh().finally(() => {
-					this.updateView(webviewView);
+				void performAutoRefresh().then(() => {
+					void this.updateView(webviewView);
 					webviewView.webview.postMessage({ type: 'refreshComplete', success: true });
+				}).catch(() => {
+					// Even if refresh fails, update the view to show current state
+					void this.updateView(webviewView);
+					webviewView.webview.postMessage({ type: 'refreshComplete', success: false });
 				});
 			}
 		});
