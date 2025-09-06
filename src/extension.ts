@@ -2082,7 +2082,9 @@ export async function _test_setIconOverrideWarning(msg: string | undefined) { tr
 
 // Internal test-only helpers to drive refresh logic directly (bypassing webview message path)
 export async function _test_refreshPersonal() {
-	const token = await getGitHubToken();
+	let token = await getGitHubToken();
+	// In tests, if a factory is installed, allow proceeding without a real token
+	if (!token && _testOctokitFactory) { token = ''; }
 	if (!token || !extCtx) return;
 	try {
 		const octokit = await getOctokit(token);
@@ -2112,6 +2114,8 @@ export async function _test_refreshOrg() {
 			if (!org) org = trimmedSetting(vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'), 'org');
 		} catch { /* noop */ }
 	}
+	// In tests, if a factory is installed, allow proceeding without a real token
+	if (!token && _testOctokitFactory) { token = ''; }
 	if (!token || !org || !extCtx) return;
 	try {
 		const metrics = await fetchOrgCopilotMetrics(org, token, {});
