@@ -1,6 +1,6 @@
 // Top-level error banner renderer
 function showErrorBanner(msg) {
-  console.log('[showErrorBanner] called with:', msg);
+  try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('[showErrorBanner] called with: ' + JSON.stringify(msg)); } } catch { /* noop */ }
   let banner = document.getElementById('error-banner');
   if (!banner) {
     banner = document.createElement('div');
@@ -18,16 +18,16 @@ function showErrorBanner(msg) {
     if (container) {
       container.innerHTML = '';
       container.appendChild(banner);
-      console.log('[showErrorBanner] banner appended to #error-banner-container');
+      try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('[showErrorBanner] banner appended to #error-banner-container'); } } catch { /* noop */ }
     } else {
       document.body.prepend(banner);
-      console.log('[showErrorBanner] banner prepended to body');
+      try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('[showErrorBanner] banner prepended to body'); } } catch { /* noop */ }
     }
   } else {
-    console.log('[showErrorBanner] banner already exists, updating text');
+    try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('[showErrorBanner] banner already exists, updating text'); } } catch { /* noop */ }
   }
   banner.textContent = msg;
-  console.log('[showErrorBanner] banner text set:', banner.textContent);
+  try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('[showErrorBanner] banner text set: ' + String(banner.textContent)); } } catch { /* noop */ }
 }
 
 (function () {
@@ -208,11 +208,11 @@ function showErrorBanner(msg) {
     }
   }
 
-  console.log('[webview.js] registering message listener');
-  try { console.log('[webview.js] has WIN:', !!WIN, 'typeof WIN.addEventListener:', typeof (WIN && WIN.addEventListener)); } catch { }
+  try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('[webview.js] registering message listener'); } } catch { /* noop */ }
+  try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('[webview.js] has WIN: ' + (!!WIN) + ' typeof WIN.addEventListener: ' + typeof (WIN && WIN.addEventListener)); } } catch { }
   const __cpumHandler = (event) => {
     const msg = event.data;
-    console.log('[Webview] Received message:', msg);
+    try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('[Webview] Received message: ' + JSON.stringify(msg)); } } catch { }
     if (msg.type === 'summary') {
       // Capture latest summary to allow re-render on config updates
       try { lastSummaryMsg = msg; } catch { /* noop */ }
@@ -328,11 +328,11 @@ function showErrorBanner(msg) {
         // Mark summary as stale if in personal context without any token (secure or plaintext)
         try {
           const needsTokenPersonal = effectiveMode === 'personal' && !cfg.hasSecurePat && !cfg.residualPlaintext;
-          console.log('[webview.js][config] needsTokenPersonal=', needsTokenPersonal);
+          try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('[webview.js][config] needsTokenPersonal=' + String(needsTokenPersonal)); } } catch { }
           if (needsTokenPersonal) {
             const summary = document.getElementById('summary');
             if (summary && !summary.classList.contains('summary-error')) {
-              console.log('[webview.js][config] adding summary-error class');
+              try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('[webview.js][config] adding summary-error class'); } } catch { }
               summary.classList.add('summary-error');
               if (!document.getElementById('summary-unavailable')) {
                 const unavailable = document.createElement('div');
@@ -755,7 +755,7 @@ function showErrorBanner(msg) {
 
   // Usage History Rendering Functions
   function renderUsageHistory(historyData) {
-    console.log('[renderUsageHistory] called with:', historyData);
+    try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('[renderUsageHistory] called with: ' + JSON.stringify(historyData)); } } catch { }
     const section = document.getElementById('usage-history-section');
 
     if (!section) {
@@ -849,7 +849,7 @@ function showErrorBanner(msg) {
       computedStyle.getPropertyValue('--vscode-foreground') ||
       '#cccccc';
 
-    console.log('Chart colors:', { chartLineColor, chartAxisColor, chartTextColor }); // Debug
+    try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('Chart colors: ' + JSON.stringify({ chartLineColor, chartAxisColor, chartTextColor })); } } catch { }
 
     // Set up chart styling with scaled line width for high-DPI
     ctx.strokeStyle = chartLineColor.trim();
@@ -873,7 +873,7 @@ function showErrorBanner(msg) {
       bottom: 40,
       left: 50
     };
-    console.log('Chart margins:', margin); // Debug: verify margin values
+    try { if (typeof window?.cpumWebviewLog === 'function') { window.cpumWebviewLog('Chart margins: ' + JSON.stringify(margin)); } } catch { }
     const chartWidth = displayWidth - margin.left - margin.right;
     const chartHeight = displayHeight - margin.top - margin.bottom;
 

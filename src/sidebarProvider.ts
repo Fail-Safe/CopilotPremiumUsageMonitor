@@ -126,13 +126,7 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 
 		// Debug: Log trend data for sidebar
 		if (trendData) {
-			console.log('Sidebar trend data:', {
-				hourlyRate: trendData.hourlyRate,
-				dailyProjection: trendData.dailyProjection,
-				weeklyProjection: trendData.weeklyProjection,
-				trend: trendData.trend,
-				confidence: trendData.confidence
-			});
+			try { const log = (globalThis as any).cpumGetLog ? (globalThis as any).cpumGetLog() : undefined; if (log) { log.appendLine(`Sidebar trend data: ${JSON.stringify({ hourlyRate: trendData.hourlyRate, dailyProjection: trendData.dailyProjection, weeklyProjection: trendData.weeklyProjection, trend: trendData.trend, confidence: trendData.confidence })}`); } } catch { /* noop */ }
 		}
 
 		webviewView.webview.postMessage({

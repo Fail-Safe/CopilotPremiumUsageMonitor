@@ -151,8 +151,9 @@ class UsagePanel {
 						}
 						// Finalize secure-only style: secure present and no effective legacy/residual detected
 						securePatOnly = !!(hasSecurePat && !legacyPresentEff && !residualPlaintext);
+						// Debug logging disabled by default; use output channel when enabled via env
 						if (process.env.CPUM_TEST_DEBUG_TOKEN === '1') {
-							try { console.log(`[cpum][getConfig] secureOnly=${securePatOnly} hasSecure=${hasSecurePat} legacyEff=${legacyPresentEff} residual=${residualPlaintext} state=${ts.state}`); } catch { /* noop */ }
+							try { getLog().appendLine(`[cpum][getConfig] secureOnly=${securePatOnly} hasSecure=${hasSecurePat} legacyEff=${legacyPresentEff} residual=${residualPlaintext} state=${ts.state}`); } catch { /* noop */ }
 						}
 						// Build config
 						const baseConfig: any = {
@@ -571,13 +572,7 @@ class UsagePanel {
 
 		// Debug: Log trend data for main panel (only if feature enabled)
 		if (trendsEnabled && historyData?.trend) {
-			console.log('Main panel trend data:', {
-				hourlyRate: historyData.trend.hourlyRate,
-				dailyProjection: historyData.trend.dailyProjection,
-				weeklyProjection: historyData.trend.weeklyProjection,
-				trend: historyData.trend.trend,
-				confidence: historyData.trend.confidence
-			});
+			try { getLog().appendLine(`Main panel trend data: ${JSON.stringify({ hourlyRate: historyData.trend.hourlyRate, dailyProjection: historyData.trend.dailyProjection, weeklyProjection: historyData.trend.weeklyProjection, trend: historyData.trend.trend, confidence: historyData.trend.confidence })}`); } catch { /* noop */ }
 		}
 
 		// Send data immediately if HTML was already initialized (reopened panel)
@@ -634,15 +629,7 @@ class UsagePanel {
 			const totalQuantity = Number(lastBilling.totalQuantity || 0);
 			const includedUsed = totalQuantity;
 
-			console.log('[Usage History] Collecting snapshot:', {
-				totalQuantity,
-				includedUsed,
-				spend,
-				included,
-				selectedPlanId: config.get('selectedPlanId'),
-				userIncluded: config.get('includedPremiumRequests'),
-				billingIncluded: includedFromBilling
-			});
+			try { getLog().appendLine(`[Usage History] Collecting snapshot: ${JSON.stringify({ totalQuantity, includedUsed, spend, included, selectedPlanId: config.get('selectedPlanId'), userIncluded: config.get('includedPremiumRequests'), billingIncluded: includedFromBilling })}`); } catch { /* noop */ }
 
 			// Collect snapshot
 			await usageHistoryManager.collectSnapshot({
@@ -674,15 +661,7 @@ class UsagePanel {
 			const totalQuantity = Number(lastBilling.totalQuantity || 0);
 			const includedUsed = totalQuantity;
 
-			console.log('[Usage History Force] Collecting snapshot:', {
-				totalQuantity,
-				includedUsed,
-				spend,
-				included,
-				selectedPlanId: config.get('selectedPlanId'),
-				userIncluded: config.get('includedPremiumRequests'),
-				billingIncluded: includedFromBilling
-			});
+			try { getLog().appendLine(`[Usage History Force] Collecting snapshot: ${JSON.stringify({ totalQuantity, includedUsed, spend, included, selectedPlanId: config.get('selectedPlanId'), userIncluded: config.get('includedPremiumRequests'), billingIncluded: includedFromBilling })}`); } catch { /* noop */ }
 
 			// Collect snapshot (forcing immediate collection)
 			await usageHistoryManager.collectSnapshot({
@@ -738,7 +717,7 @@ async function postFreshConfig() {
 		// Finalize secure-only style from stabilized booleans
 		securePatOnly = !!(hasSecurePat && !legacyPresentEff2 && !residualPlaintext);
 		if (process.env.CPUM_TEST_DEBUG_TOKEN === '1') {
-			try { console.log(`[cpum][postFreshConfig] secureOnly=${securePatOnly} hasSecure=${hasSecurePat} legacyEff=${legacyPresentEff2} residual=${residualPlaintext} state=${ts.state}`); } catch { /* noop */ }
+			try { getLog().appendLine(`[cpum][postFreshConfig] secureOnly=${securePatOnly} hasSecure=${hasSecurePat} legacyEff=${legacyPresentEff2} residual=${residualPlaintext} state=${ts.state}`); } catch { /* noop */ }
 		}
 		const baseConfig = {
 			budget: (cfgNew.get('budget')) ?? (cfgOld.get('budget')),
@@ -1842,15 +1821,7 @@ async function collectUsageSnapshotBackground(billing: any) {
 		const totalQuantity = Number(billing.totalQuantity || 0);
 		const includedUsed = totalQuantity;
 
-		console.log('[Usage History Background] Collecting snapshot:', {
-			totalQuantity,
-			includedUsed,
-			spend,
-			included,
-			selectedPlanId: config.get('selectedPlanId'),
-			userIncluded: config.get('includedPremiumRequests'),
-			billingIncluded: includedFromBilling
-		});
+		try { getLog().appendLine(`[Usage History Background] Collecting snapshot: ${JSON.stringify({ totalQuantity, includedUsed, spend, included, selectedPlanId: config.get('selectedPlanId'), userIncluded: config.get('includedPremiumRequests'), billingIncluded: includedFromBilling })}`); } catch { /* noop */ }
 
 		// Collect snapshot
 		await usageHistoryManager.collectSnapshot({
