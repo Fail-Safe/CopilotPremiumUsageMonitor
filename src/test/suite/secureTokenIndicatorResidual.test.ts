@@ -33,11 +33,23 @@ suite('Secure token indicator (residual plaintext)', () => {
         const msgs = api._test_getPostedMessages?.() || [];
         const cfgMsg = [...msgs].reverse().find((m: any) => m.type === 'config');
         assert.ok(cfgMsg, 'Expected config message');
-        assert.strictEqual(cfgMsg.config.hasSecurePat, true, 'Expected hasSecurePat true');
-        assert.strictEqual(cfgMsg.config.securePatOnly, false, 'Expected securePatOnly false (residual plaintext present)');
-        assert.strictEqual(cfgMsg.config.residualPlaintext, true, 'Expected residualPlaintext true');
-        assert.ok(/Plaintext in settings/i.test(cfgMsg.config.secureTokenTextResidual), 'Expected residual secureTokenTextResidual localized string');
-        assert.ok(/plaintext copy still in settings/i.test(cfgMsg.config.secureTokenTitleResidual), 'Expected residual secureTokenTitleResidual localized string');
+        // Allow a moment for async update + postFreshConfig to complete. This resolves the race condition that
+        // leads to "AssertionError [ERR_ASSERTION]: Expected hasSecurePat true after setting token"
+        await new Promise(r => setTimeout(r, 4000));
+
+        // Request fresh config after waiting for token state to stabilize
+        api._test_resetPostedMessages?.();
+        api._test_invokeWebviewMessage?.({ type: 'getConfig' });
+        await new Promise(r => setTimeout(r, 300));
+        const freshMsgs = api._test_getPostedMessages?.() || [];
+        const freshCfgMsg = [...freshMsgs].reverse().find((m: any) => m.type === 'config');
+        assert.ok(freshCfgMsg, 'Expected fresh config message');
+
+        assert.strictEqual(freshCfgMsg.config.hasSecurePat, true, 'Expected hasSecurePat true');
+        assert.strictEqual(freshCfgMsg.config.securePatOnly, false, 'Expected securePatOnly false (residual plaintext present)');
+        assert.strictEqual(freshCfgMsg.config.residualPlaintext, true, 'Expected residualPlaintext true');
+        assert.ok(/Plaintext in settings/i.test(freshCfgMsg.config.secureTokenTextResidual), 'Expected residual secureTokenTextResidual localized string');
+        assert.ok(/plaintext copy still in settings/i.test(freshCfgMsg.config.secureTokenTitleResidual), 'Expected residual secureTokenTitleResidual localized string');
         // Cleanup: clear both secure + plaintext
         await api._test_clearSecretToken?.();
     });

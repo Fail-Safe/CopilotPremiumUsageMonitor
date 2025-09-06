@@ -22,9 +22,17 @@ You’ll immediately get a status bar percentage + progress bar. Open the panel 
 
 ## 📸 Screenshots
 
-| Panel | Status Bar |
-|-------|------------|
-| ![Panel showing budget, spend, thresholds](./media/screenshot-panel.png) | ![Status bar item with percent and bar](./media/screenshot-statusbar.png) |
+### Dark mode
+
+Panel (dark) | Sidebar (dark) | Status bar (dark) | Fullscreen (dark)
+---|---|---|---
+![Panel dark](./media/sc-webview-dark.png) | ![Sidebar dark](./media/sc-sidebar-dark.png) | ![Statusbar dark](./media/sc-statusbar-dark.png) | ![Fullscreen dark](./media/sc-fullscreen-dark.png)
+
+### Light mode
+
+Panel (light) | Sidebar (light) | Status bar (light) | Fullscreen (light)
+---|---|---|---
+![Panel light](./media/sc-webview-light.png) | ![Sidebar light](./media/sc-sidebar-light.png) | ![Statusbar light](./media/sc-statusbar-light.png) | ![Fullscreen light](./media/sc-fullscreen-light.png)
 
 ---
 
@@ -40,10 +48,6 @@ You’ll immediately get a status bar percentage + progress bar. Open the panel 
 - Help banner (first run) to guide correct auth + PAT setup.
 - Output channel logging & on‑error auto open option.
 - Zero external telemetry; only talks to `api.github.com`.
-
-Reliability & Quality:
-
-- CI enforces 95% minimum across lines, branches, functions, and statements (nyc). The coverage badge reflects line coverage from the latest main branch build.
 
 ---
 
@@ -126,7 +130,7 @@ If you keep the plaintext value temporarily, functionality is unchanged; the ind
 
 It’s safe to sync everything **except** the token. Add to ignored settings:
 
-```jsonc
+```json
 "settingsSync.ignoredSettings": ["copilotPremiumUsageMonitor.token"]
 ```
 
@@ -149,7 +153,7 @@ It’s safe to sync everything **except** the token. Add to ignored settings:
 
 1. Set `budget` and (optionally) `org`.
 2. Add PAT (for personal spend) OR sign in (for org metrics).
-3. Status bar shows: `icon percent% ▓▓▓░ (stale)` (stale tag appears only after errors).
+3. Status bar shows: an icon, a percentage and a small progress bar; a `(stale)` tag appears only after errors.
 4. Tooltip reveals dollars, thresholds, last (successful) sync with relative time.
 5. Panel: Press Refresh, change Mode, open Settings, Help, or Sign in.
 
@@ -167,6 +171,7 @@ Color logic: green (under warn), yellow (>= warn), red (>= danger), error stylin
 | Icon override ignored | Invalid Codicon name | Use a valid name from the Codicon catalog. |
 | Stale tag persists | Last sync failed | Check Output Channel; resolve auth/network; manually Refresh. |
 | No color (just theme fg) | `useThemeStatusColor` true | Disable that setting to always colorize usage bar. |
+| Incorrect / out-of-date data | Stale cache or transient API hiccup | Use the Refresh button in the panel or sidebar to bypass cache and re-fetch data immediately. |
 
 Extra diagnostics: run **Show Logs** (or enable `showLogOnError`).
 
@@ -222,4 +227,3 @@ MIT – see [LICENSE](./LICENSE).
 ## ℹ Disclaimer
 
 Not affiliated with or endorsed by GitHub. “GitHub” and “Copilot” are trademarks of their respective owners.
-

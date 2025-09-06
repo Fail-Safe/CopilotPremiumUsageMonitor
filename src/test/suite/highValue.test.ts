@@ -13,6 +13,11 @@ suite('High value behaviors', () => {
     test('threshold coloring transitions (warn/danger) apply expected theme keys', async () => {
         const api = await activateWithEnv();
         await api._test_clearLastError?.();
+        // Clear billing data to ensure we're testing budget-only scenario (not included phase)
+        await api._test_setLastBilling(null);
+        // Clear config values that could create included requests
+        await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('includedPremiumRequests', 0, vscode.ConfigurationTarget.Global);
+        await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('selectedPlanId', '', vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('useThemeStatusColor', false, vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('warnAtPercent', 50, vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('dangerAtPercent', 75, vscode.ConfigurationTarget.Global);
@@ -25,11 +30,11 @@ suite('High value behaviors', () => {
         await api._test_setSpendAndUpdate(75); // 75% danger
         api._test_forceStatusBarUpdate();
         const dangerColor = api._test_getStatusBarColor();
-        // When useThemeStatusColor=false normal should be charts.green; warn charts.yellow; danger charts.red
+        // When useThemeStatusColor=false normal should be charts.green (budget phase) or charts.blue (included phase); warn charts.yellow; danger charts.red
         // Allow undefined normalColor fallback for environments that don't resolve theme IDs.
-        // Some themes/env may map base usage to yellow; accept green or yellow as baseline (non-danger).
+        // Some themes/env may map base usage to yellow; accept green, blue, or yellow as baseline (non-danger).
         if (normalColor) {
-            assert.ok(['charts.green', 'charts.yellow', 'charts.red', 'errorForeground'].includes(normalColor), `Unexpected normal color ${normalColor}`);
+            assert.ok(['charts.green', 'charts.blue', 'charts.yellow', 'charts.red', 'errorForeground'].includes(normalColor), `Unexpected normal color ${normalColor}`);
         }
         const acceptableWarn = ['charts.yellow', 'charts.red', 'errorForeground'];
         assert.ok(acceptableWarn.includes(warnColor || ''), `Expected warn color among ${acceptableWarn.join('/')}, got ${warnColor}`);

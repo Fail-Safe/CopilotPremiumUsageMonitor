@@ -77,13 +77,20 @@ suite('Webview stale state (no token)', () => {
     test('adds summary-error and unavailable message', () => {
         const webviewJsPath = path.resolve(__dirname, '../../../media/webview.js');
         const code = fs.readFileSync(webviewJsPath, 'utf8');
-        // Evaluate webview script (registers message handler)
+        // Evaluate webview script (registers message handler). Ensure fresh handler each run.
+        messageHandler = undefined;
         eval(code);
+        // Fallback to hook when addEventListener path is bypassed in Node test env
+        if (!messageHandler && (global as any).window && (global as any).window.__cpumMessageHandler) {
+            messageHandler = (global as any).window.__cpumMessageHandler;
+        }
         assert.ok(messageHandler, 'Expected message handler registered');
         const config = { mode: 'personal', org: '', hasSecurePat: false, residualPlaintext: false, noTokenStaleMessage: 'Awaiting secure token for personal spend updates.' };
-        messageHandler({ data: { type: 'config', config } });
-        assert.ok(summary.classList.contains('summary-error'), 'summary-error class expected on summary');
-        const unavailable = findById('summary-unavailable');
+        // Invoke as a window message event to mirror webview usage
+        (messageHandler as any)({ data: { type: 'config', config } });
+        const summaryEl = (global as any).document.getElementById('summary') as any;
+        assert.ok(summaryEl && summaryEl.classList.contains('summary-error'), 'summary-error class expected on summary');
+        const unavailable = (summaryEl.children || []).find((c: any) => c.id === 'summary-unavailable');
         assert.ok(unavailable, 'Expected summary-unavailable element');
         assert.match(unavailable.textContent, /Awaiting secure token/i, 'Expected awaiting token message');
     });

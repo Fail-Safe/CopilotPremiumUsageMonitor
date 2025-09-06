@@ -38,11 +38,16 @@ body {
     display: flex;
     flex-direction: column;
     align-items: stretch;
+
+    /* Define custom chart colors for better visibility in both light and dark themes */
+    --chart-line-color: var(--vscode-textLink-foreground, #007acc);
+    --chart-axis-color: var(--vscode-foreground, #cccccc);
+    --chart-text-color: var(--vscode-foreground, #cccccc);
 }
 
 #app {
-    max-width: 640px;
-    width: 100%;
+    width: 90%;
+    max-width: none;
     margin: 0 auto;
     /* center block itself */
     display: flex;
@@ -78,15 +83,54 @@ body {
     gap: 8px;
 }
 
+/* Right-side stacked meta container lives under the mode/plan controls */
+#right-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+/* Full-width notes row that sits directly under the buttons row */
+#controls-notes {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 6px;
+}
+
 h2 {
     margin-top: 0;
 }
 
 .meter {
-    height: 14px;
+    height: 21px;
     background: var(--vscode-editor-inactiveSelectionBackground);
-    border-radius: 7px;
+    border-radius: 11px;
     overflow: hidden;
+}
+
+.meter-section {
+    margin-bottom: 16px;
+}
+
+.meter-label {
+    margin-bottom: 6px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.meter-label-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.meter-label-left {
+    flex: 1 1 auto;
 }
 
 .fill {
@@ -155,6 +199,30 @@ h2 {
     border: 1px solid var(--vscode-editorWarning-foreground);
 }
 
+/* Compact pill for custom override hint on the right */
+.notice-custom-override {
+    border: 1px solid var(--vscode-button-primaryBorder, #0e639c);
+    color: var(--vscode-foreground);
+    background: transparent;
+    padding: 8px 10px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.limit-source-text {
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+.limit-source-inline {
+    font-size: 12px;
+    opacity: 0.8;
+    margin-bottom: 6px;
+    /* font-weight: 600; */
+}
+
 /* VS Code themed buttons */
 .btn {
     background: var(--vscode-button-background);
@@ -172,4 +240,186 @@ h2 {
 .btn:focus {
     outline: 1px solid var(--vscode-focusBorder);
     outline-offset: 1px;
+}
+
+/* Inline help button used next to lines in the summary */
+#included-line button,
+#price-line button {
+    font-size: 12px;
+    padding: 2px 4px;
+    vertical-align: middle;
+}
+
+/* Micro sparkline + badges for billing */
+.billing-micro {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.micro-sparkline {
+    width: 84px;
+    height: 22px;
+    display: flex;
+    align-items: end;
+    gap: 2px;
+}
+
+.micro-sparkline .spark-bar {
+    width: 3px;
+    background: var(--vscode-charts-categories-0, #6aa84f);
+    border-radius: 2px 2px 0 0;
+    transition: height 200ms ease;
+}
+
+.micro-sparkline .spark-placeholder {
+    color: var(--vscode-foreground);
+    opacity: 0.6;
+    font-size: 12px;
+}
+
+.badges {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.badge {
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 12px;
+    background: var(--vscode-badge-background, #eee);
+    color: var(--vscode-badge-foreground, #000);
+}
+
+.badge-primary {
+    background: var(--vscode-charts-categories-0, #6aa84f);
+    color: #fff;
+}
+
+.badge-used {
+    background: var(--vscode-editor-background);
+    color: var(--vscode-foreground);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.badge-overage {
+    background: var(--vscode-inputValidation-warningBackground, #fff4e5);
+    color: var(--vscode-inputValidation-warningForeground, #5c4400);
+    border: 1px solid var(--vscode-inputValidation-warningBorder, #d5b200);
+}
+
+.badge-price {
+    background: transparent;
+    color: var(--vscode-foreground);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* Accessibility focus styles */
+.badge:focus,
+.micro-sparkline:focus {
+    outline: 2px solid var(--vscode-focusBorder);
+    outline-offset: 2px;
+}
+
+/* Ensure sufficient contrast for overage badge */
+.badge-overage {
+    box-shadow: 0 0 0 2px rgba(213, 178, 0, 0.08) inset;
+}
+
+/* Usage History Section */
+#usage-history-section {
+    margin-top: 24px;
+    padding: 16px;
+    background: var(--vscode-editor-background);
+    border: 1px solid var(--vscode-widget-border);
+    border-radius: 6px;
+}
+
+#usage-history-section h3 {
+    margin: 0 0 16px 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+}
+
+#usage-charts {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.chart-container {
+    background: var(--vscode-sideBar-background);
+    border: 1px solid var(--vscode-sideBar-border);
+    border-radius: 4px;
+    padding: 16px;
+    overflow: hidden;
+    /* Prevent chart from overflowing container */
+}
+
+.chart-container h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+}
+
+#trend-chart {
+    display: block;
+    margin: 0;
+    /* Don't override JavaScript-calculated margins */
+    background: var(--vscode-editor-background);
+    border-radius: 4px;
+    width: 100%;
+    /* Responsive width */
+    max-width: 100%;
+    /* Ensure chart doesn't exceed container width */
+    height: 200px;
+    /* Fixed height for proper aspect ratio */
+    min-width: 300px;
+    /* Minimum width for readability */
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+}
+
+.stat-card {
+    background: var(--vscode-sideBar-background);
+    border: 1px solid var(--vscode-sideBar-border);
+    border-radius: 4px;
+    padding: 12px;
+    text-align: center;
+    transition: background-color 0.2s ease;
+}
+
+.stat-card:hover {
+    background: var(--vscode-list-hoverBackground);
+}
+
+.stat-title {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--vscode-descriptionForeground);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-value {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    margin-bottom: 2px;
+}
+
+.stat-unit {
+    font-size: 10px;
+    color: var(--vscode-descriptionForeground);
+    font-weight: 400;
 }
