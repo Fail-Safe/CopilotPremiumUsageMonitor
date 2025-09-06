@@ -43,14 +43,15 @@ suite('Plan selection persistence', () => {
             const stored = cfg.get('selectedPlanId');
             assert.strictEqual(stored, testPlanId, 'selectedPlanId should be persisted to settings');
 
-            // Ensure includedPremiumRequests and pricePerPremiumRequest were populated when defaults present
+            // Ensure pricePerPremiumRequest was populated when default present; includedPremiumRequests remains 0 (use plan/billing)
             const gen = loadGeneratedPlans();
             const plan = gen?.plans.find(p => p.id === testPlanId) as any;
             // If generated plans are not available tests should still be robust; skip stricter checks then
             if (plan) {
                 const included = Number(cfg.get('includedPremiumRequests') ?? 0) || 0;
                 const price = Number(cfg.get('pricePerPremiumRequest') ?? 0.04) || 0.04;
-                assert.strictEqual(included, plan.included, 'includedPremiumRequests should be set from selected plan');
+                // New behavior: selecting a plan does NOT write included into the override; 0 means "use plan/billing".
+                assert.strictEqual(included, 0, 'includedPremiumRequests should remain 0 unless user overrides');
                 if (typeof gen?.pricePerPremiumRequest === 'number') {
                     assert.strictEqual(price, gen!.pricePerPremiumRequest, 'pricePerPremiumRequest should be populated from generated file when default');
                 }

@@ -11,8 +11,8 @@ const DEFAULT_WARN = cfgProps['copilotPremiumUsageMonitor.warnAtPercent']?.defau
 const DEFAULT_DANGER = cfgProps['copilotPremiumUsageMonitor.dangerAtPercent']?.default ?? 90;
 
 void test('computeUsageBar basic distribution', () => {
-    assert.equal(computeUsageBar(0), '□'.repeat(10));
-    assert.equal(computeUsageBar(100), '■'.repeat(10));
+    assert.equal(computeUsageBar(0), '▱'.repeat(10));
+    assert.equal(computeUsageBar(100), '▰'.repeat(10));
     const mid = computeUsageBar(55); // rounding to nearest segment
     assert.equal(mid.length, 10);
 });

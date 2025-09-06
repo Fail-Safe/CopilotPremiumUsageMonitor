@@ -60,8 +60,6 @@ suite('Secure token indicator live refresh', () => {
         let configAfterClear: any | undefined;
         for (let i = 0; i < 15 && !configAfterClear; i++) {
             await new Promise(r => setTimeout(r, 90));
-            // Proactively request a fresh config mid-way if not yet observed
-            if (i === 4 || i === 8) { api._test_invokeWebviewMessage?.({ type: 'getConfig' }); }
             const msgs2: any[] = api._test_getPostedMessages?.() || [];
             configAfterClear = [...msgs2].reverse().find(m => m.type === 'config');
             if (configAfterClear && configAfterClear.config.hasSecurePat === false) break;

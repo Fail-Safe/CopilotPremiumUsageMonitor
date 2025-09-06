@@ -14,6 +14,11 @@ suite('Status bar extra branches', () => {
         const api = await activate({ CPUM_TEST_DISABLE_TIMERS: '1' });
         // Ensure no error state present
         await api._test_clearLastError();
+        // Clear billing data to ensure we're testing budget-only scenario (not included phase)
+        await api._test_setLastBilling(null);
+        // Clear config values that could create included requests
+        await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('includedPremiumRequests', 0, vscode.ConfigurationTarget.Global);
+        await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('selectedPlanId', '', vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('useThemeStatusColor', false, vscode.ConfigurationTarget.Global);
         await api._test_setSpendAndUpdate(10, 100); // 10%
         api._test_setLastSyncTimestamp(Date.now());

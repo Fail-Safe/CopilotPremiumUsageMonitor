@@ -37,6 +37,10 @@ function showErrorBanner(msg) {
     : (typeof window !== 'undefined' ? window : undefined);
   const $ = (sel) => document.querySelector(sel);
   let hasError = false; // track current error (stale data) state
+  // Keep the latest config for renderSummary to reference
+  let cfg = {};
+  // Keep the latest summary payload so we can re-render when config changes
+  let lastSummaryMsg = null;
 
   function lighten(hex, amount) {
     // hex like #rrggbb; amount 0..1
@@ -124,6 +128,42 @@ function showErrorBanner(msg) {
     // Build the HTML with optional included requests meter
     let html = '';
 
+    // Compute a human-friendly source label for the included limit to display above the included meter
+    let limitSourceText = '';
+    try {
+      const customIncluded = Number(cfg.includedPremiumRequests || 0) > 0;
+      const hasPlan = !!cfg.selectedPlanId;
+      if (customIncluded) {
+        limitSourceText = (typeof localize === 'function') ? localize('cpum.webview.limitSource.custom', 'Included limit: Custom value') : 'Included limit: Custom value';
+      } else if (hasPlan) {
+        let planName = cfg.selectedPlanId;
+        try {
+          const plans = cfg.generatedPlans && Array.isArray(cfg.generatedPlans.plans) ? cfg.generatedPlans.plans : [];
+          const found = plans.find(p => (p.id || p.name) === cfg.selectedPlanId);
+          if (found && found.name) planName = found.name;
+        } catch { /* noop */ }
+        if (!planName || planName === cfg.selectedPlanId) {
+          const fallbackNames = {
+            'copilot-free': 'Copilot Free',
+            'copilot-pro': 'Copilot Pro',
+            'copilot-proplus': 'Copilot Pro+',
+            'copilot-business': 'Copilot Business',
+            'copilot-enterprise': 'Copilot Enterprise'
+          };
+          if (fallbackNames[cfg.selectedPlanId]) planName = fallbackNames[cfg.selectedPlanId];
+        }
+        if (typeof localize === 'function') {
+          let txt = localize('cpum.webview.limitSource.plan', 'Included limit: GitHub plan ({0})', planName);
+          if (typeof txt === 'string' && txt.includes('{0}')) { try { txt = txt.replace('{0}', planName); } catch { /* noop */ } }
+          limitSourceText = txt;
+        } else {
+          limitSourceText = `Included limit: GitHub plan (${planName})`;
+        }
+      } else {
+        limitSourceText = (typeof localize === 'function') ? localize('cpum.webview.limitSource.billing', 'Included limit: Billing data') : 'Included limit: Billing data';
+      }
+    } catch { /* noop */ }
+
     // Add included requests meter if data is available
     if (included > 0) {
       const includedBarColor = (view && view.includedColor) ? view.includedColor : 'var(--chart-color, #007acc)'; // Prefer centralized
@@ -137,7 +177,10 @@ function showErrorBanner(msg) {
         : Math.min(100, Math.round(Math.min((includedPct || 0), 100)));
       html += `
         <div class="meter-section">
-      <div class="meter-label">Included Premium Requests: ${formatRequests(shownNumerator)} / ${formatRequests(included)} (${shownPct}%)</div>
+          <div class="meter-label meter-label-row">
+            <span class="meter-label-left">Included Premium Requests: ${formatRequests(shownNumerator)} / ${formatRequests(included)} (${shownPct}%)</span>
+            <span class="limit-source-inline">${limitSourceText}</span>
+          </div>
           <div class="meter">
             <div class="fill" style="width:${Math.min(includedPct, 100)}%; background: linear-gradient(to right, ${includedStartColor}, ${includedBarColor});"></div>
           </div>
@@ -146,6 +189,10 @@ function showErrorBanner(msg) {
     }
 
     // Add budget meter
+    // Compute period text from current config so it persists across re-renders
+    const orgForPeriod = (cfg.org || '').trim();
+    const effectiveModeForPeriod = (cfg.mode === 'auto') ? (orgForPeriod ? 'org' : 'personal') : cfg.mode;
+    const periodText = effectiveModeForPeriod === 'org' ? 'Current period: Last 28 days' : 'Current period: This month';
     html += `
       <div class="meter-section">
         <div class="meter-label">Budget: $${budget.toFixed(2)} / Spend: $${spend.toFixed(2)} (${pct}%)</div>
@@ -153,7 +200,7 @@ function showErrorBanner(msg) {
           <div class="fill" style="width:${pct}%; background: linear-gradient(to right, ${startColor}, ${barColor});"></div>
         </div>
       </div>
-      <div id="periodLine" class="note"></div>
+      <div id="periodLine" class="note">${periodText}</div>
     `;
 
     if (summary) {
@@ -167,6 +214,8 @@ function showErrorBanner(msg) {
     const msg = event.data;
     console.log('[Webview] Received message:', msg);
     if (msg.type === 'summary') {
+      // Capture latest summary to allow re-render on config updates
+      try { lastSummaryMsg = msg; } catch { /* noop */ }
       const summary = document.getElementById('summary');
       if (!hasError) { // only clear error visuals if no active error
         if (summary) {
@@ -247,18 +296,20 @@ function showErrorBanner(msg) {
     } else if (msg.type === 'config') {
       // Initialize UI controls from config and sensible defaults
       try {
-        const cfg = msg.config || {};
+        cfg = msg.config || {};
         const modeSel = document.querySelector('#mode');
         if (modeSel && cfg.mode) {
           modeSel.value = cfg.mode;
         }
-        // Period line based on mode + org
+        // Re-render summary with the latest config so plan label and period reflect immediately
+        if (lastSummaryMsg) {
+          renderSummary(lastSummaryMsg);
+        }
+        // Note: The legacy fallback #limit-source element has been removed.
+        // The "Included limit" label is rendered inline above the included meter by renderSummary().
+        // Derive effective mode for downstream toggles
         const org = (cfg.org || '').trim();
         const effectiveMode = (cfg.mode === 'auto') ? (org ? 'org' : 'personal') : cfg.mode;
-        const periodEl = document.querySelector('#periodLine');
-        if (periodEl) {
-          periodEl.textContent = effectiveMode === 'org' ? 'Current period: Last 28 days' : 'Current period: This month';
-        }
         // Hide mode row if auto applies and org is configured
         const modeRow = document.querySelector('#modeRow');
         if (modeRow && cfg.mode === 'auto' && org) {
@@ -354,7 +405,6 @@ function showErrorBanner(msg) {
         try {
           const hasPlan = !!cfg.selectedPlanId;
           const customIncluded = Number(cfg.includedPremiumRequests || 0) > 0;
-          const plansData = cfg.generatedPlans && Array.isArray(cfg.generatedPlans.plans) ? cfg.generatedPlans : null;
           if (hasPlan && customIncluded) {
             let hint = document.getElementById('override-hint');
             const notes = document.getElementById('controls-notes');
@@ -364,10 +414,14 @@ function showErrorBanner(msg) {
               hint.className = 'notice-custom-override';
               const text = document.createElement('span');
               text.id = 'override-hint-text';
-              text.textContent = 'Using custom Included value. Plan value is not applied.';
+              text.textContent = (typeof localize === 'function')
+                ? localize('cpum.webview.overrideHint.customIncluded', 'Using custom "Included Premium Requests". Plan value is not applied.')
+                : 'Using custom "Included Premium Requests". Plan value is not applied.';
               const btn = document.createElement('button');
               btn.className = 'btn';
-              btn.textContent = 'Use plan value';
+              btn.textContent = (typeof localize === 'function')
+                ? localize('cpum.webview.overrideHint.usePlanValue', 'Use plan value')
+                : 'Use plan value';
               btn.addEventListener('click', () => {
                 vscode?.postMessage({ type: 'clearIncludedOverride' });
                 hint?.remove();
@@ -389,34 +443,7 @@ function showErrorBanner(msg) {
           }
         } catch { /* noop */ }
 
-        // Show a compact line stating the source of the Included limit (Plan vs Custom vs Billing) under right controls
-        try {
-          const customIncluded = Number(cfg.includedPremiumRequests || 0) > 0;
-          const hasPlan = !!cfg.selectedPlanId;
-          let src = document.getElementById('limit-source');
-          if (!src) {
-            src = document.createElement('div');
-            src.id = 'limit-source';
-            src.className = 'limit-source-text';
-            const host = document.getElementById('right-meta') || document.querySelector('.controls');
-            if (host) host.appendChild(src);
-          }
-          if (customIncluded) {
-            src.textContent = 'Included limit: Custom value';
-          } else if (hasPlan) {
-            // Try to show plan name if available
-            let planName = cfg.selectedPlanId;
-            try {
-              const plans = cfg.generatedPlans && Array.isArray(cfg.generatedPlans.plans) ? cfg.generatedPlans.plans : [];
-              const found = plans.find(p => (p.id || p.name) === cfg.selectedPlanId);
-              if (found && found.name) planName = found.name;
-            } catch { /* noop */ }
-            src.textContent = `Included limit: GitHub plan (${planName})`;
-          } else {
-            // Explicitly indicate billing-derived limit when no custom override or plan is selected
-            src.textContent = 'Included limit: Billing data';
-          }
-        } catch { /* noop */ }
+        // We now show the "Included limit" inline above the meter only.
         // Secure token indicator (shows whenever a secure PAT exists). If residual plaintext also exists, use warning styling.
         let secureInd = document.getElementById('secure-token-indicator');
         if (cfg.hasSecurePat) {

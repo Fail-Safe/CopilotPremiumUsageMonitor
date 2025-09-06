@@ -1,157 +1,193 @@
 import * as vscode from 'vscode';
 import { formatRelativeTime } from './lib/format';
-import { performAutoRefresh, getUsageHistoryManager, calculateCompleteUsageData } from './extension';
+import { performAutoRefresh, calculateCompleteUsageData } from './extension';
 import { findPlanById } from './lib/planUtils';
+import * as nls from 'vscode-nls';
+
+const localize = nls.loadMessageBundle();
 
 export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
-    public static readonly viewType = 'copilotPremiumUsage.sidebarView';
+	public static readonly viewType = 'copilotPremiumUsage.sidebarView';
 
-    constructor(
-        private readonly extensionUri: vscode.Uri,
-        private readonly context: vscode.ExtensionContext
-    ) { }
+	constructor(
+		private readonly extensionUri: vscode.Uri,
+		private readonly context: vscode.ExtensionContext
+	) { }
 
-    public resolveWebviewView(
-        webviewView: vscode.WebviewView,
-        context: vscode.WebviewViewResolveContext,
-        _token: vscode.CancellationToken,
-    ) {
-        webviewView.webview.options = {
-            enableScripts: true,
-            localResourceRoots: [this.extensionUri]
-        };
+	public resolveWebviewView(
+		webviewView: vscode.WebviewView,
+		_context: vscode.WebviewViewResolveContext,
+		_token: vscode.CancellationToken,
+	) {
+		// touch unused parameters to satisfy lint without affecting behavior
+		void _context; void _token;
+		webviewView.webview.options = {
+			enableScripts: true,
+			localResourceRoots: [this.extensionUri]
+		};
 
-        webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
+		webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
 
-        // Handle messages from webview
-        webviewView.webview.onDidReceiveMessage((message) => {
-            switch (message.type) {
-                case 'refresh':
-                    // Show refreshing state
-                    webviewView.webview.postMessage({ type: 'refreshing' });
+		// Handle messages from webview
+		webviewView.webview.onDidReceiveMessage((message) => {
+			switch (message.type) {
+				case 'refresh':
+					// Show refreshing state
+					webviewView.webview.postMessage({ type: 'refreshing' });
 
-                    // Trigger a data refresh and update the sidebar
-                    performAutoRefresh().then(() => {
-                        this.updateView(webviewView);
-                        // Show success feedback
-                        webviewView.webview.postMessage({ type: 'refreshComplete', success: true });
-                    }).catch(() => {
-                        // Even if refresh fails, update the view to show current state
-                        this.updateView(webviewView);
-                        // Show failure feedback
-                        webviewView.webview.postMessage({ type: 'refreshComplete', success: false });
-                    });
-                    break;
-                case 'openPanel':
-                    vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
-                    break;
-                case 'openSettings':
-                    vscode.commands.executeCommand('workbench.action.openSettings', 'copilotPremiumUsageMonitor');
-                    break;
-            }
-        });
+					// Trigger a data refresh and update the sidebar
+					void performAutoRefresh().then(() => {
+						void this.updateView(webviewView);
+						// Show success feedback
+						webviewView.webview.postMessage({ type: 'refreshComplete', success: true });
+					}).catch(() => {
+						// Even if refresh fails, update the view to show current state
+						void this.updateView(webviewView);
+						// Show failure feedback
+						webviewView.webview.postMessage({ type: 'refreshComplete', success: false });
+					});
+					break;
+				case 'openPanel':
+					void vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
+					break;
+				case 'openSettings':
+					void vscode.commands.executeCommand('workbench.action.openSettings', 'copilotPremiumUsageMonitor');
+					break;
+			}
+		});
 
-        // Update with current data
-        this.updateView(webviewView);
+		// Update with current data
+		void this.updateView(webviewView);
 
-        // Update when view is shown again after being hidden/collapsed
-        webviewView.onDidChangeVisibility(() => {
-            if (webviewView.visible) {
-                // Push a quick status message so UI feels alive
-                webviewView.webview.postMessage({ type: 'refreshing' });
-                // Try a background refresh, then update the view with latest data
-                void performAutoRefresh().finally(() => {
-                    void this.updateView(webviewView).then(() => {
-                        webviewView.webview.postMessage({ type: 'refreshComplete', success: true });
-                    });
-                });
-            }
-        });
+		// Update when view is shown again after being hidden/collapsed
+		webviewView.onDidChangeVisibility(() => {
+			if (webviewView.visible) {
+				// Push a quick status message so UI feels alive
+				webviewView.webview.postMessage({ type: 'refreshing' });
+				// Try a background refresh, then update the view with latest data
+				void performAutoRefresh().finally(() => {
+					this.updateView(webviewView);
+					webviewView.webview.postMessage({ type: 'refreshComplete', success: true });
+				});
+			}
+		});
 
-        // Listen for configuration changes to update the view
-        vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('copilotPremiumUsageMonitor')) {
-                this.updateView(webviewView);
-            }
-        });
-    }
+		// Listen for configuration changes to update the view
+		vscode.workspace.onDidChangeConfiguration((e) => {
+			if (e.affectsConfiguration('copilotPremiumUsageMonitor')) {
+				void this.updateView(webviewView);
+			}
+		});
+	}
 
-    private async updateView(webviewView: vscode.WebviewView) {
-        // Use centralized data calculation to ensure consistency with trends
-        const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-        const trendsEnabled = !!cfg.get('enableExperimentalTrends');
-        const completeData = await calculateCompleteUsageData();
-        if (!completeData) return;
+	private async updateView(webviewView: vscode.WebviewView) {
+		// Use centralized data calculation to ensure consistency with trends
+		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		const trendsEnabled = !!cfg.get('enableExperimentalTrends');
+		const completeData = await calculateCompleteUsageData();
+		if (!completeData) return;
 
-        const { budget, spend, budgetPct: percentage, progressColor, warnAt, dangerAt,
-            included, includedUsed, usageHistory } = completeData;
+		const { budget, spend, budgetPct: percentage, progressColor, warnAt, dangerAt,
+			included, includedUsed, usageHistory } = completeData;
 
-        const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-        const mode = config.get<string>('mode', 'auto');
-        const org = config.get<string>('org', '');
+		const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+		const mode = config.get<string>('mode', 'auto');
+		const org = config.get<string>('org', '');
 
-        // Determine effective mode for display
-        const effectiveMode = mode === 'auto' ? (org ? 'Organization' : 'Personal') :
-            mode === 'org' ? 'Organization' : 'Personal';
+		// Determine effective mode for display (localized)
+		const personalLabel = localize('cpum.mode.personal', 'Personal');
+		const orgLabel = localize('cpum.mode.org', 'Organization');
+		const modeSuffix = localize('cpum.sidebar.modeSuffix', 'Mode');
+		const effectiveMode = mode === 'auto' ? (org ? orgLabel : personalLabel) :
+			mode === 'org' ? orgLabel : personalLabel;
 
-        // Check if a specific plan is selected and modify the mode display accordingly
-        const selectedPlanId = config.get<string>('selectedPlanId', '');
-        const customIncluded = Number(config.get('includedPremiumRequests', 0)) > 0;
-        let modeDisplay = `${effectiveMode} Mode`;
+		// Check if a specific plan is selected and modify the mode display accordingly
+		const selectedPlanId = config.get<string>('selectedPlanId', '');
+		const customIncluded = Number(config.get('includedPremiumRequests', 0)) > 0;
+		let modeDisplay = `${effectiveMode} ${modeSuffix}`;
 
-        // Show plan name only when no custom included override is active
-        if (selectedPlanId && !customIncluded) {
-            const plan = findPlanById(selectedPlanId);
-            const planDisplayName = plan?.name || selectedPlanId; // Fallback to ID if name not found
-            modeDisplay = `${effectiveMode} Mode: ${planDisplayName}`;
-        }
+		// Show plan name only when no custom included override is active
+		if (selectedPlanId && !customIncluded) {
+			const plan = findPlanById(selectedPlanId);
+			const planDisplayName = plan?.name || selectedPlanId; // Fallback to ID if name not found
+			modeDisplay = `${effectiveMode} Mode: ${planDisplayName}`;
+		}
 
-        // Get last sync info
-        const lastSync = this.context.globalState.get('copilotPremiumUsageMonitor.lastSyncTimestamp') as number ?? 0;
-        const lastSyncText = lastSync > 0 ? formatRelativeTime(lastSync) : 'Never';
+		// Get last sync info
+		const lastSync = this.context.globalState.get('copilotPremiumUsageMonitor.lastSyncTimestamp') as number ?? 0;
+		const lastSyncText = lastSync > 0 ? formatRelativeTime(lastSync) : localize('cpum.sidebar.never', 'Never');
 
-        // Extract trend data from centralized calculation
-        const trendData = (trendsEnabled ? usageHistory?.trend : null) || null;
+		// Extract trend data from centralized calculation
+		const trendData = (trendsEnabled ? usageHistory?.trend : null) || null;
 
-        // Debug: Log trend data for sidebar
-        if (trendData) {
-            console.log('Sidebar trend data:', {
-                hourlyRate: trendData.hourlyRate,
-                dailyProjection: trendData.dailyProjection,
-                weeklyProjection: trendData.weeklyProjection,
-                trend: trendData.trend,
-                confidence: trendData.confidence
-            });
-        }
+		// Debug: Log trend data for sidebar
+		if (trendData) {
+			console.log('Sidebar trend data:', {
+				hourlyRate: trendData.hourlyRate,
+				dailyProjection: trendData.dailyProjection,
+				weeklyProjection: trendData.weeklyProjection,
+				trend: trendData.trend,
+				confidence: trendData.confidence
+			});
+		}
 
-        webviewView.webview.postMessage({
-            type: 'update',
-            data: {
-                budget: budget.toFixed(2),
-                spend: spend.toFixed(2),
-                percentage,
-                progressColor,
-                lastSync: lastSyncText,
-                mode: modeDisplay,
-                included,
-                // Use actual used count for display (can exceed included), percent will be clamped below
-                includedUsed: Math.min(includedUsed, included),
-                trend: trendData,
-                thresholds: {
-                    warn: warnAt,
-                    danger: dangerAt
-                }
-            }
-        });
-    }
+		webviewView.webview.postMessage({
+			type: 'update',
+			data: {
+				budget: budget.toFixed(2),
+				spend: spend.toFixed(2),
+				percentage,
+				progressColor,
+				lastSync: lastSyncText,
+				mode: modeDisplay,
+				included,
+				// Use actual used count for display (can exceed included), percent will be clamped below
+				includedUsed: Math.min(includedUsed, included),
+				trend: trendData,
+				thresholds: {
+					warn: warnAt,
+					danger: dangerAt
+				}
+			}
+		});
+	}
 
-    private getHtmlForWebview(webview: vscode.Webview) {
-        return `<!DOCTYPE html>
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	private getHtmlForWebview(_webview: vscode.Webview) {
+		// Localized strings for the sidebar webview HTML/JS
+		const L = {
+			title: localize('cpum.sidebar.html.title', 'Copilot Usage'),
+			modePersonal: localize('cpum.sidebar.mode.personal.full', 'Personal Mode'),
+			chartIncludedTitle: localize('cpum.sidebar.includedTitle', 'Included Requests'),
+			chartBudgetTitle: localize('cpum.sidebar.budgetTitle', 'Budget Usage'),
+			usedLabel: localize('cpum.sidebar.used', 'Used'),
+			spentLabel: localize('cpum.sidebar.spent', 'Spent'),
+			statIncludedUsed: localize('cpum.sidebar.stat.includedUsed', 'Included Used'),
+			statBudgetLeft: localize('cpum.sidebar.stat.budgetLeft', 'Budget Left'),
+			trendTitle: localize('cpum.sidebar.trend.title', 'Usage Trend'),
+			trendDaily: localize('cpum.sidebar.trend.daily', 'Daily:'),
+			trendWeekly: localize('cpum.sidebar.trend.weekly', 'Weekly:'),
+			trendIncreasing: localize('cpum.sidebar.trend.increasing', 'Increasing'),
+			trendDecreasing: localize('cpum.sidebar.trend.decreasing', 'Decreasing'),
+			trendStable: localize('cpum.sidebar.trend.stable', 'Stable'),
+			trendReqPerHour: localize('cpum.sidebar.trend.reqPerHour', 'req/hr'),
+			trendReq: localize('cpum.sidebar.trend.req', 'req'),
+			warnApproaching: localize('cpum.sidebar.warning.approaching', 'Approaching budget limit'),
+			warnExceeded: localize('cpum.sidebar.warning.exceeded', 'Budget limit exceeded!'),
+			btnRefresh: localize('cpum.refresh', 'Refresh'),
+			btnDetails: localize('cpum.sidebar.details', 'Details'),
+			refreshing: localize('cpum.sidebar.refreshing', 'Refreshing...'),
+			synced: localize('cpum.sidebar.synced', 'Synced'),
+			failed: localize('cpum.sidebar.failed', 'Failed'),
+			lastSyncLabel: localize('cpum.sidebar.lastSync', 'Last sync:'),
+			never: localize('cpum.sidebar.never', 'Never'),
+		};
+		return `<!DOCTYPE html>
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Copilot Usage</title>
+	<title>${L.title}</title>
 	<style>
 		body {
 			font-family: var(--vscode-font-family);
@@ -372,11 +408,11 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 <body>
 	<div class="usage-container">
 		<!-- Mode indicator -->
-		<div class="mode-indicator" id="mode-indicator">Personal Mode</div>
+		<div class="mode-indicator" id="mode-indicator">${L.modePersonal}</div>
 
 		<!-- First Chart: Included Requests Usage -->
 		<div class="chart-section">
-			<h3 class="chart-title">Included Requests</h3>
+			<h3 class="chart-title">${L.chartIncludedTitle}</h3>
 			<div class="donut-chart">
 				<svg class="donut-svg" viewBox="0 0 42 42">
 					<!-- Background circle -->
@@ -387,7 +423,7 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 				</svg>
 				<div class="donut-center">
 					<div class="donut-percentage" id="included-percentage">0%</div>
-					<div class="donut-label">Used</div>
+					<div class="donut-label">${L.usedLabel}</div>
 					<div class="donut-sublabel" id="included-count">0/0</div>
 				</div>
 			</div>
@@ -395,7 +431,7 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 
 		<!-- Second Chart: Budget Usage -->
 		<div class="chart-section">
-			<h3 class="chart-title">Budget Usage</h3>
+			<h3 class="chart-title">${L.chartBudgetTitle}</h3>
 			<div class="donut-chart">
 				<svg class="donut-svg" viewBox="0 0 42 42">
 					<!-- Background circle -->
@@ -406,7 +442,7 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 				</svg>
 				<div class="donut-center">
 					<div class="donut-percentage" id="budget-percentage">0%</div>
-					<div class="donut-label">Spent</div>
+					<div class="donut-label">${L.spentLabel}</div>
 					<div class="donut-sublabel" id="budget-amount">$0/$0</div>
 				</div>
 			</div>
@@ -416,49 +452,50 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 		<div class="stat-grid">
 			<div class="stat-card">
 				<div class="stat-value" id="included-requests-value">0</div>
-				<div class="stat-label">Included Used</div>
+				<div class="stat-label">${L.statIncludedUsed}</div>
 			</div>
 			<div class="stat-card">
 				<div class="stat-value" id="budget-remaining-value">$0.00</div>
-				<div class="stat-label">Budget Left</div>
+				<div class="stat-label">${L.statBudgetLeft}</div>
 			</div>
 		</div>
 
 		<!-- Usage Trend -->
 		<div class="usage-trend" id="usage-trend" style="display: none;">
-			<div class="trend-title">Usage Trend</div>
+			<div class="trend-title">${L.trendTitle}</div>
 			<div class="trend-info">
-				<div class="trend-rate" id="trend-rate">0 req/hr</div>
+				<div class="trend-rate" id="trend-rate">0 ${L.trendReqPerHour}</div>
 				<div class="trend-indicator" id="trend-direction"></div>
 			</div>
 			<div class="trend-projections">
 				<div class="projection-item">
-					<span class="projection-label">Daily:</span>
+					<span class="projection-label">${L.trendDaily}</span>
 					<span class="projection-value" id="daily-projection">0</span>
 				</div>
 				<div class="projection-item">
-					<span class="projection-label">Weekly:</span>
+					<span class="projection-label">${L.trendWeekly}</span>
 					<span class="projection-value" id="weekly-projection">0</span>
 				</div>
 			</div>
 		</div>
 
 		<!-- Threshold Warning -->
-		<div class="threshold-warning" id="threshold-warning" style="display: none;">
-			⚠️ Approaching budget limit
-		</div>
+		<div class="threshold-warning" id="threshold-warning" style="display: none;">⚠️ ${L.warnApproaching}</div>
 
 		<!-- Quick Actions -->
 		<div class="quick-actions">
-			<button class="action-btn" id="refresh-btn">↻ Refresh</button>
-			<button class="action-btn" id="panel-btn">📊 Details</button>
+			<button class="action-btn" id="refresh-btn">↻ ${L.btnRefresh}</button>
+			<button class="action-btn" id="panel-btn">📊 ${L.btnDetails}</button>
 		</div>
 
-		<div class="last-sync" id="last-sync">Last sync: Never</div>
+		<div class="last-sync" id="last-sync">${L.lastSyncLabel} ${L.never}</div>
 	</div>
 
 	<script>
 		const vscode = acquireVsCodeApi();
+
+		// Localized labels injected from extension
+		const L = ${JSON.stringify(L)};
 
 		function renderUpdate(data) {
 			const { budget, spend, percentage, progressColor, lastSync, mode, included, includedUsed, trend, thresholds, view } = data;
@@ -478,7 +515,7 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 			const includedShownValue = typeof view?.includedShown === 'number' ? view.includedShown : Math.min(includedUsedValue, includedTotal);
 			document.getElementById('included-requests-value').textContent = includedShownValue.toString();
 			document.getElementById('budget-remaining-value').textContent = '$' + (budgetValue - spendValue).toFixed(2);
-			document.getElementById('last-sync').textContent = 'Last sync: ' + lastSync;
+			document.getElementById('last-sync').textContent = L.lastSyncLabel + ' ' + (lastSync || L.never);
 			document.getElementById('mode-indicator').textContent = mode || 'Auto Mode';
 
 			// Update both donut charts (pass clamped numerator for label)
@@ -488,9 +525,7 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 			const warning = document.getElementById('threshold-warning');
 			if (thresholds && budgetValue > 0 && thresholds.warn > 0 && percentage >= thresholds.warn) {
 				warning.style.display = 'block';
-				warning.textContent = percentage >= thresholds.danger ?
-					'🚨 Budget limit exceeded!' :
-					'⚠️ Approaching budget limit';
+				warning.textContent = (percentage >= thresholds.danger) ? ('🚨 ' + L.warnExceeded) : ('⚠️ ' + L.warnApproaching);
 			} else {
 				warning.style.display = 'none';
 			}
@@ -502,24 +537,24 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 
 				// Format hourly rate
 				const hourlyRate = trend.hourlyRate.toFixed(1);
-				document.getElementById('trend-rate').textContent = hourlyRate + ' req/hr';
+				document.getElementById('trend-rate').textContent = hourlyRate + ' ' + L.trendReqPerHour;
 
 				// Update trend direction indicator
 				const directionElement = document.getElementById('trend-direction');
 				if (trend.trend === 'increasing') {
 					directionElement.className = 'trend-indicator trend-up';
-					directionElement.innerHTML = '<span>↗</span> Increasing';
+					directionElement.innerHTML = '<span>↗</span> ' + L.trendIncreasing;
 				} else if (trend.trend === 'decreasing') {
 					directionElement.className = 'trend-indicator trend-down';
-					directionElement.innerHTML = '<span>↘</span> Decreasing';
+					directionElement.innerHTML = '<span>↘</span> ' + L.trendDecreasing;
 				} else {
 					directionElement.className = 'trend-indicator trend-stable';
-					directionElement.innerHTML = '<span>→</span> Stable';
+					directionElement.innerHTML = '<span>→</span> ' + L.trendStable;
 				}
 
 				// Update projections
-				document.getElementById('daily-projection').textContent = Math.round(trend.dailyProjection) + ' req';
-				document.getElementById('weekly-projection').textContent = Math.round(trend.weeklyProjection) + ' req';
+				document.getElementById('daily-projection').textContent = Math.round(trend.dailyProjection) + ' ' + L.trendReq;
+				document.getElementById('weekly-projection').textContent = Math.round(trend.weeklyProjection) + ' ' + L.trendReq;
 			} else {
 				trendSection.style.display = 'none';
 			}
@@ -566,7 +601,7 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 			if (message.type === 'refreshing') {
 				// Update refresh button to show loading state
 				const refreshBtn = document.getElementById('refresh-btn');
-				refreshBtn.textContent = '⟳ Refreshing...';
+				refreshBtn.textContent = '⟳ ' + L.refreshing;
 				refreshBtn.disabled = true;
 			} else if (message.type === 'refreshComplete') {
 				// Update refresh button to show completion state
@@ -574,16 +609,16 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 				refreshBtn.disabled = false;
 
 				if (message.success) {
-					refreshBtn.textContent = '✓ Synced';
+					refreshBtn.textContent = '✓ ' + L.synced;
 					// Reset to original text after 2 seconds
 					setTimeout(() => {
-						refreshBtn.textContent = '↻ Refresh';
+						refreshBtn.textContent = '↻ ' + L.btnRefresh;
 					}, 2000);
 				} else {
-					refreshBtn.textContent = '✗ Failed';
+					refreshBtn.textContent = '✗ ' + L.failed;
 					// Reset to original text after 2 seconds
 					setTimeout(() => {
-						refreshBtn.textContent = '↻ Refresh';
+						refreshBtn.textContent = '↻ ' + L.btnRefresh;
 					}, 2000);
 				}
 			} else if (message.type === 'update') {
@@ -603,5 +638,5 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 	</script>
 </body>
 </html>`;
-    }
+	}
 }

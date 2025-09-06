@@ -80,8 +80,28 @@
       {
         "command": "copilotPremiumUsageMonitor.toggleSidebar",
         "title": "Copilot Premium Usage Monitor: Toggle Sidebar"
+      },
+      {
+        "command": "copilotPremiumUsageMonitor.prepareScreenshotState",
+        "title": "Copilot Premium Usage Monitor: Prepare Screenshot State (Normal)"
+      },
+      {
+        "command": "copilotPremiumUsageMonitor.prepareScreenshotErrorState",
+        "title": "Copilot Premium Usage Monitor: Prepare Screenshot State (Error)"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "copilotPremiumUsageMonitor.prepareScreenshotState",
+          "when": "isDevelopment"
+        },
+        {
+          "command": "copilotPremiumUsageMonitor.prepareScreenshotErrorState",
+          "when": "isDevelopment"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -257,6 +277,8 @@
     "test:unit": "npm run clean && npm run build:dev && node --test --test-reporter=spec out/test/unit/**/*.test.js",
     "test": "npm run clean && npm run build:dev && node --test --test-reporter=spec out/test/unit/**/*.test.js && node ./out/test/runTests.js",
     "build:bundle": "tsc -p ./ && npm run bundle && npm run postbundle",
+    "screenshot:prepare": "npm run build:bundle",
+    "screenshot:open": "npm run screenshot:prepare && code .",
     "vsce": "npx @vscode/vsce",
     "vscode:prepublish": "npm run build:bundle"
   },

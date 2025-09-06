@@ -63,7 +63,11 @@ module.exports = [
             // Allow un-awaited test/it/describe registrations (Node test framework returns a promise)
             '@typescript-eslint/no-floating-promises': 'off',
             // Do not force artificial awaits inside test callbacks that don't need them
-            '@typescript-eslint/require-await': 'off'
+            '@typescript-eslint/require-await': 'off',
+            // Tests often use explicit casts or helper signatures that trip this rule
+            '@typescript-eslint/no-unnecessary-type-assertion': 'off',
+            // Allow unused vars in tests (e.g., placeholders in tuple returns, or documenting intent)
+            '@typescript-eslint/no-unused-vars': 'off'
         }
     }
 ];

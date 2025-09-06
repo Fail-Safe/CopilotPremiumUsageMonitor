@@ -35,7 +35,7 @@ export class UsageHistoryManager {
         included: number;
     }): Promise<void> {
         const now = Date.now();
-        const history = await this.getHistory();
+        const history = this.getHistory();
 
         const snapshot: UsageSnapshot = {
             timestamp: now,
@@ -61,18 +61,18 @@ export class UsageHistoryManager {
         await this.saveHistory(history);
     }
 
-    async shouldCollectSnapshot(): Promise<boolean> {
+    shouldCollectSnapshot(): boolean {
         const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
         const intervalMinutes = Number(config.get('refreshIntervalMinutes') ?? 5);
         const intervalMs = intervalMinutes * 60 * 1000;
 
-        const history = await this.getHistory();
+        const history = this.getHistory();
         const timeSinceLastCollection = Date.now() - history.lastCollectionTime;
 
         return timeSinceLastCollection >= intervalMs;
     }
 
-    async getHistory(): Promise<UsageHistory> {
+    getHistory(): UsageHistory {
         const stored = this.context.globalState.get<UsageHistory>(HISTORY_KEY);
         return stored || { snapshots: [], lastCollectionTime: 0 };
     }
@@ -81,8 +81,8 @@ export class UsageHistoryManager {
         await this.context.globalState.update(HISTORY_KEY, history);
     }
 
-    async calculateTrend(): Promise<UsageTrend | null> {
-        const history = await this.getHistory();
+    calculateTrend(): UsageTrend | null {
+        const history = this.getHistory();
         const snapshots = history.snapshots;
 
         if (snapshots.length < 2) {
@@ -197,8 +197,8 @@ export class UsageHistoryManager {
         return squaredDifferences.reduce((sum, n) => sum + n, 0) / numbers.length;
     }
 
-    async getRecentSnapshots(hours: number = 24): Promise<UsageSnapshot[]> {
-        const history = await this.getHistory();
+    getRecentSnapshots(hours: number = 24): UsageSnapshot[] {
+        const history = this.getHistory();
         const cutoffTime = Date.now() - (hours * 60 * 60 * 1000);
 
         return history.snapshots
@@ -206,8 +206,8 @@ export class UsageHistoryManager {
             .sort((a, b) => a.timestamp - b.timestamp);
     }
 
-    async getDataSize(): Promise<{ snapshots: number; estimatedKB: number }> {
-        const history = await this.getHistory();
+    getDataSize(): { snapshots: number; estimatedKB: number } {
+        const history = this.getHistory();
         const jsonString = JSON.stringify(history);
         const estimatedKB = Math.round(jsonString.length / 1024 * 100) / 100;
         // Align with UI/tests that reason about "recent" data most of the time.

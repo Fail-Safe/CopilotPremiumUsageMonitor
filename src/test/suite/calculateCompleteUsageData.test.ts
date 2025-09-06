@@ -9,6 +9,10 @@ suite('calculateCompleteUsageData', () => {
         await ext!.activate();
         const api: any = ext!.exports;
 
+        // Clear any previous test state that might interfere
+        await api._test_clearSecretToken?.();
+        await api._test_clearLastError?.();
+
         // Ensure plan/included overrides are neutral so billing drives 'included'
         const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
         await cfg.update('selectedPlanId', '', vscode.ConfigurationTarget.Global);
@@ -16,8 +20,10 @@ suite('calculateCompleteUsageData', () => {
 
         // Seed base state and allow a brief settle to avoid cross-test races
         await api._test_setSpendAndUpdate?.(3, 10); // spend=3, budget=10
-        await new Promise(r => setTimeout(r, 60));
+        await new Promise(r => setTimeout(r, 100));
         await api._test_setLastBilling?.({ totalQuantity: 100, totalIncludedQuantity: 200, pricePerPremiumRequest: 0.04 });
+        // Extra delay to ensure state persistence
+        await new Promise(r => setTimeout(r, 50));
 
         // Stub usage history manager methods
         const mgr = api.getUsageHistoryManager?.();

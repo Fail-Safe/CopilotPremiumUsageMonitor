@@ -28,6 +28,24 @@ You’ll immediately get a status bar percentage + progress bar. Open the panel 
 
 ---
 
+## 🎯 Preparing Deterministic States for Screenshots
+
+To create consistent Marketplace screenshots, two helper commands are included:
+
+- Copilot Premium Usage Monitor: Prepare Screenshot State (Normal)
+  - Seeds a plan (Copilot Pro+), 131/1500 included usage, and $2/$10 budget.
+  - Opens the panel and refreshes the status bar for a clean capture.
+
+- Copilot Premium Usage Monitor: Prepare Screenshot State (Error)
+  - Posts a network error to the panel and sets an error icon in the status bar.
+
+Tips:
+- Hide unrelated status bar items via the status bar gear menu for a clean UI.
+- Keep OS/UI scale at 100% where possible to preserve crisp bar glyphs.
+- You can adjust colors with `useThemeStatusColor` if you want fixed green/yellow/red styling.
+
+---
+
 ## ✨ Key Features
 
 - Live budget meter in status bar & panel (with color thresholds).

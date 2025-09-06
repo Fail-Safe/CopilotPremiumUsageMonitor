@@ -44,8 +44,8 @@ export function findPlanById(id: string | undefined): Plan | null {
         'copilot-enterprise': { included: 1000, name: 'Copilot Enterprise' },
     };
     if (Object.prototype.hasOwnProperty.call(fallbackPlans, id)) {
-        const planData = fallbackPlans[id as keyof typeof fallbackPlans];
-        return { id, name: planData.name, included: planData.included } as Plan;
+        const planData = fallbackPlans[id];
+        return { id, name: planData.name, included: planData.included };
     }
     return null;
 }
@@ -53,9 +53,9 @@ export function findPlanById(id: string | undefined): Plan | null {
 // Compute suggested settings when a plan is selected. Pure function used by tests.
 export function computePlanOverrides(planId: string | undefined, currentIncluded: number | null | undefined, currentPrice: number | null | undefined) {
     const gen = loadGeneratedPlans();
-    if (!gen || !planId) return {} as { included?: number; price?: number };
+    if (!gen || !planId) return {};
     const plan = gen.plans.find(p => p.id === planId);
-    if (!plan) return {} as { included?: number; price?: number };
+    if (!plan) return {};
     const out: { included?: number; price?: number } = {};
     const curIncluded = typeof currentIncluded === 'number' ? currentIncluded : 0;
     const curPrice = typeof currentPrice === 'number' ? currentPrice : 0.04;

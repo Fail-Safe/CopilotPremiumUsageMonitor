@@ -1,3 +1,6 @@
+import * as nls from 'vscode-nls';
+const localize = nls.loadMessageBundle();
+
 export function computeIncludedOverageSummary(lastBilling: any, includedOverride?: number) {
     try {
         if (!lastBilling) return '';
@@ -8,10 +11,14 @@ export function computeIncludedOverageSummary(lastBilling: any, includedOverride
         const overage = Math.max(0, total - included);
         const price = Number(lastBilling.pricePerPremiumRequest || 0.04) || 0.04;
         // Use GitHub nomenclature.
-        const shownNumerator = Math.min(total, included);
-        let summary = `Included Premium Requests: ${shownNumerator}/${included}`;
+        const includedLabel = localize('cpum.statusbar.included', 'Included Premium Requests');
+        const pct = included > 0 ? Math.min(100, Math.round((total / included) * 100)) : 0;
+        // Show used/included to match tooltip expectations (e.g., 88/1500)
+        const main = included > 0 ? `${total}/${included}` : `${included}`;
+        let summary = `${includedLabel}: ${main}` + (included > 0 ? ` (${pct}%)` : '');
         if (overage > 0) {
-            summary += ` • Overage: ${overage} (${(overage * price).toFixed(2)} USD)`;
+            const overageLabel = localize('cpum.statusbar.overage', 'Overage');
+            summary += ` • ${overageLabel}: ${overage} ($${(overage * price).toFixed(2)} USD)`;
         }
         return summary;
     } catch {

@@ -122,6 +122,17 @@ h2 {
     font-weight: 500;
 }
 
+.meter-label-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.meter-label-left {
+    flex: 1 1 auto;
+}
+
 .fill {
     height: 100%;
     transition: width .3s ease;
@@ -203,6 +214,13 @@ h2 {
 .limit-source-text {
     font-size: 12px;
     opacity: 0.7;
+}
+
+.limit-source-inline {
+    font-size: 12px;
+    opacity: 0.8;
+    margin-bottom: 6px;
+    /* font-weight: 600; */
 }
 
 /* VS Code themed buttons */

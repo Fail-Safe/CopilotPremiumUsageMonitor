@@ -39,7 +39,7 @@ suite('Limit source states and sidebar suppression', () => {
         assert.ok(/Limit source:\s*Billing data/i.test(md), `Expected 'Limit source: Billing data' in tooltip, got: ${md}`);
     });
 
-    test('webview shows Included limit source line with Billing when neither custom nor plan', () => {
+    test('webview shows Included limit source inline with Billing when neither custom nor plan', () => {
         // Prepare DOM and evaluate webview.js
         (global as any).document = documentStub; (global as any).window = { addEventListener: (t: string, h: any) => { if (t === 'message') msgHandler = h; } } as any;
         (global as any).acquireVsCodeApi = () => ({ postMessage: (_: any) => { } });
@@ -47,10 +47,34 @@ suite('Limit source states and sidebar suppression', () => {
         const code = fs.readFileSync(webviewJsPath, 'utf8');
         eval(code);
         assert.ok(msgHandler, 'Expected message handler to be registered');
-        // Send config with no custom included and no selected plan
-        msgHandler!({ data: { type: 'config', config: { includedPremiumRequests: 0, selectedPlanId: '', generatedPlans: { plans: [] } } } });
-        const src = root.querySelector('#limit-source') as Elem | null;
-        assert.ok(src && /Included limit:\s*Billing data/i.test(src.textContent), `Expected Billing data line in webview, got: ${src?.textContent}`);
+        // Ensure a summary container exists (renderSummary writes into #summary)
+        const summaryHost = new Elem('div');
+        summaryHost.id = 'summary';
+        root.appendChild(summaryHost);
+        // Send config with no custom included and no selected plan (so label uses Billing)
+        msgHandler!({
+            data: {
+                type: 'config',
+                config: { includedPremiumRequests: 0, selectedPlanId: '', generatedPlans: { plans: [] } }
+            }
+        });
+        // Trigger a summary render with an included meter so the inline label appears
+        msgHandler!({
+            data: {
+                type: 'summary',
+                budget: 10,
+                spend: 0,
+                pct: 0,
+                warnAtPercent: 75,
+                dangerAtPercent: 90,
+                included: 100,
+                includedUsed: 10,
+                includedPct: 10
+            }
+        });
+        const summary = root.querySelector('#summary') as Elem | null;
+        const hasInline = !!(summary && /Included limit:\s*Billing data/i.test(summary.innerHTML || summary.textContent));
+        assert.ok(hasInline, `Expected inline 'Included limit: Billing data' in webview summary.`);
     });
 
     test('sidebar hides plan label when custom included override is active', async () => {
