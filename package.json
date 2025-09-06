@@ -297,7 +297,7 @@
     "eslint": "^9.34.0",
     "glob": "^11.0.3",
     "markdownlint-cli": "^0.45.0",
-    "mocha": "^11.7.1",
+    "mocha": "^11.7.2",
     "nyc": "^17.1.0",
     "rimraf": "^6.0.1",
     "typescript": "^5.4.5"
