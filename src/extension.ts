@@ -461,8 +461,24 @@ class UsagePanel {
 	private post(data: any) {
 		if (data && typeof data === 'object') { try { _test_postedMessages.push(data); } catch { /* noop */ } }
 		if (data.type === 'config') {
-			try { const lastError = this.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError'); if (lastError) { const errMsg = { type: 'error', message: lastError }; try { void this.panel.webview.postMessage(errMsg); _test_postedMessages.push(errMsg); } catch { /* disposed */ } } } catch { /* noop */ }
-			try { const iconWarn = this.globalState.get<string>('copilotPremiumUsageMonitor.iconOverrideWarning'); if (iconWarn) { const warnMsg = { type: 'iconOverrideWarning', message: iconWarn }; try { void this.panel.webview.postMessage(warnMsg); _test_postedMessages.push(warnMsg); } catch { /* disposed */ } } } catch { /* noop */ }
+			try {
+				const lastError = this.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
+				if (lastError) {
+					const errMsg = { type: 'error', message: lastError };
+					// Push to test buffer first to avoid losing the message if postMessage throws
+					try { _test_postedMessages.push(errMsg); } catch { /* noop */ }
+					try { void this.panel.webview.postMessage(errMsg); } catch { /* disposed */ }
+				}
+			} catch { /* noop */ }
+			try {
+				const iconWarn = this.globalState.get<string>('copilotPremiumUsageMonitor.iconOverrideWarning');
+				if (iconWarn) {
+					const warnMsg = { type: 'iconOverrideWarning', message: iconWarn };
+					// Push to test buffer first to avoid losing the message if postMessage throws
+					try { _test_postedMessages.push(warnMsg); } catch { /* noop */ }
+					try { void this.panel.webview.postMessage(warnMsg); } catch { /* disposed */ }
+				}
+			} catch { /* noop */ }
 		}
 		try { void this.panel.webview.postMessage(data); } catch { /* disposed */ }
 	}
