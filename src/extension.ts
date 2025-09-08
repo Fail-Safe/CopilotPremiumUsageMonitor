@@ -4,7 +4,7 @@ import { computeIncludedOverageSummary, calculateIncludedQuantity, type BillingU
 import { readStoredToken, migrateSettingToken, writeToken, clearToken, getSecretStorageKey } from './secrets';
 import { deriveTokenState, recordMigrationKeep, recordSecureSetAndLegacyCleared, resetAllTokenStateWindows, debugSnapshot, recordSecureCleared } from './lib/tokenState';
 import { setSecretsLogger, logSecrets } from './secrets_log';
-import { DEFAULT_WARN_AT_PERCENT, DEFAULT_DANGER_AT_PERCENT } from './constants';
+import { DEFAULT_WARN_AT_PERCENT, DEFAULT_DANGER_AT_PERCENT, RECENT_DATA_WINDOW_HOURS } from './constants';
 import { CopilotUsageSidebarProvider } from './sidebarProvider';
 import { UsageHistoryManager } from './lib/usageHistory';
 import * as nls from 'vscode-nls';
@@ -1420,7 +1420,7 @@ export async function calculateCompleteUsageData() {
 	if (usageHistoryManager) {
 		try {
 			const trend = await Promise.resolve(usageHistoryManager.calculateTrend());
-			const recentSnapshots = await Promise.resolve(usageHistoryManager.getRecentSnapshots(48)); // Last 48 hours
+			const recentSnapshots = await Promise.resolve(usageHistoryManager.getRecentSnapshots(RECENT_DATA_WINDOW_HOURS)); // Last 48 hours
 			const dataSizeRaw = await Promise.resolve(usageHistoryManager.getDataSize());
 			const recentCount = Array.isArray(recentSnapshots) ? recentSnapshots.length : 0;
 			// Use recent 48h snapshot count for consistency with UI/tests
