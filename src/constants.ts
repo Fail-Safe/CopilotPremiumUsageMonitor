@@ -19,3 +19,6 @@ function readDefault(key: string, fallback: number): number {
 
 export const DEFAULT_WARN_AT_PERCENT = readDefault('copilotPremiumUsageMonitor.warnAtPercent', 75);
 export const DEFAULT_DANGER_AT_PERCENT = readDefault('copilotPremiumUsageMonitor.dangerAtPercent', 90);
+
+// Threshold for determining stable vs. changing usage trends (10% of hourly rate)
+export const STABILITY_THRESHOLD = 0.1;
