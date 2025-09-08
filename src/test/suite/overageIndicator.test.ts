@@ -1,9 +1,10 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getTestGlobal, TestElement, TestDocument, TestWindow, TestVSCodeApi } from '../testGlobals';
 
 // Minimal element / DOM stubs sufficient for webview.js logic
-class Elem {
+class Elem implements TestElement {
     id?: string;
     tag: string;
     style: any = {};
@@ -48,7 +49,7 @@ const summary = new Elem('div'); summary.id = 'summary'; register(summary); root
 const controls = new Elem('div'); controls.classList.add('controls'); root.appendChild(controls);
 
 // Global document stub
-const documentStub = {
+const documentStub: TestDocument = {
     createElement: (tag: string) => new Elem(tag),
     getElementById: (id: string) => findById(id),
     querySelector: (sel: string) => root.querySelector(sel),
@@ -57,15 +58,16 @@ const documentStub = {
 
 // Capture registered message handler
 let messageHandler: ((ev: any) => void) | undefined;
-const windowStub: any = {
+const windowStub: TestWindow = {
     addEventListener: (type: string, handler: any) => { if (type === 'message') messageHandler = handler; },
     removeEventListener: () => { /* noop */ }
 };
 
-(global as any).document = documentStub;
-(global as any).window = windowStub;
-(global as any).console = console;
-(global as any).acquireVsCodeApi = () => ({ postMessage: () => { /* noop */ } });
+const testGlobal = getTestGlobal();
+testGlobal.document = documentStub;
+testGlobal.window = windowStub;
+testGlobal.console = console;
+testGlobal.acquireVsCodeApi = (): TestVSCodeApi => ({ postMessage: () => { /* noop */ } });
 
 suite('Panel overage indicator', () => {
     test('shows (+X over) when includedUsed exceeds included', () => {
