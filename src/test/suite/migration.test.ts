@@ -4,6 +4,11 @@ import test from 'node:test';
 
 const EXT_ID = 'fail-safe.copilot-premium-usage-monitor';
 
+// Helper function to dynamically import the extension module
+async function getExtensionModule() {
+    return await import('../../extension');
+}
+
 async function activateWithConfig(pairs: Record<string, any>) {
     const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
     for (const [k, v] of Object.entries(pairs)) {
@@ -32,7 +37,7 @@ void test.beforeEach(async () => {
 void test('token migration writes secret storage copy (keeps legacy)', async () => {
     const testToken = 'test_pat_123';
     await activateWithConfig({ token: testToken });
-    const mod = await import('../../extension');
+    const mod = await getExtensionModule();
     const info = await (mod as any)._test_readTokenInfo();
     assert.ok(info, 'No token info');
     assert.strictEqual(info.token, testToken, 'Token mismatch');
@@ -42,7 +47,7 @@ void test('token migration writes secret storage copy (keeps legacy)', async () 
 void test('forced migration removes legacy when requested', async () => {
     const testToken = 'test_pat_remove';
     await activateWithConfig({ token: testToken });
-    const mod = await import('../../extension');
+    const mod = await getExtensionModule();
     await (mod as any)._test_forceMigration(true);
     const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
     const legacyVal = cfg.get('token');
@@ -70,7 +75,7 @@ void test('setTokenSecure command stores token in secret storage and clears lega
     const legacyAfterVal = cfg.get('token');
     const legacyAfter = typeof legacyAfterVal === 'string' ? legacyAfterVal.trim() : legacyAfterVal;
     assert.ok(!legacyAfter, 'Legacy token should be cleared by setTokenSecure');
-    const mod = await import('../../extension');
+    const mod = await getExtensionModule();
     const info = await (mod as any)._test_readTokenInfo();
     assert.strictEqual(info.token, 'new_secure_token_ABC');
     assert.strictEqual(info.source, 'secretStorage');
@@ -96,7 +101,7 @@ void test('clearTokenSecure command removes secure token', async () => {
     } finally {
         (vscode.window.showQuickPick as any) = origQP;
     }
-    const mod = await import('../../extension');
+    const mod = await getExtensionModule();
     const info = await (mod as any)._test_readTokenInfo();
     assert.ok(!info || !info.token, 'Token should be cleared');
 });
@@ -107,10 +112,12 @@ void test('residual plaintext hint appears when secret and settings both have to
     await activateWithConfig({ token: plain });
     const ext = vscode.extensions.getExtension<any>(EXT_ID)!;
     const api = await ext.activate();
-    await (await import('../../extension') as any)._test_forceMigration(false);
+    const extensionMod = await getExtensionModule();
+    await (extensionMod as any)._test_forceMigration(false);
     // Poll for secret presence before proceeding to panel open (reduce flakiness)
     for (let i = 0; i < 20; i++) {
-        const info1 = await (await import('../../extension') as any)._test_readTokenInfo();
+        const extensionMod = await getExtensionModule();
+        const info1 = await (extensionMod as any)._test_readTokenInfo();
         if (info1.token === plain) break;
         await new Promise(r => setTimeout(r, 50));
     }
