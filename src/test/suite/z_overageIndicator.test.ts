@@ -1,15 +1,14 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
+import { backupGlobals, restoreGlobals, getTestGlobal, TestElement, TestDocument, TestWindow, TestVSCodeApi } from '../testGlobals';
 
 suite('Panel overage indicator', () => {
     test('shows (+X over) when includedUsed exceeds included', () => {
         // Preserve globals and install minimal stubs
-        const originalDocument = (global as any).document;
-        const originalWindow = (global as any).window;
-        const originalAcquire = (global as any).acquireVsCodeApi;
+        const globalsBackup = backupGlobals();
 
-        class Elem {
+        class Elem implements TestElement {
             id?: string;
             tag: string;
             style: any = {};
@@ -42,22 +41,23 @@ suite('Panel overage indicator', () => {
         const summary = new Elem('div'); summary.id = 'summary'; register(summary); root.appendChild(summary);
         const controls = new Elem('div'); controls.classList.add('controls'); root.appendChild(controls);
 
-        const documentStub = {
+        const documentStub: TestDocument = {
             createElement: (tag: string) => new Elem(tag),
             getElementById: (id: string) => findById(id),
             querySelector: (_sel: string) => null,
             body: { prepend: (el: Elem) => root.prepend(el) }
         };
         let messageHandler: ((ev: any) => void) | undefined;
-        const windowStub: any = {
+        const windowStub: TestWindow = {
             addEventListener: (type: string, handler: any) => { if (type === 'message') messageHandler = handler; },
             removeEventListener: () => { /* noop */ }
         };
 
-        (global as any).document = documentStub;
-        (global as any).window = windowStub;
-        (global as any).console = console;
-        (global as any).acquireVsCodeApi = () => ({ postMessage: () => { /* noop */ } });
+        const testGlobal = getTestGlobal();
+        testGlobal.document = documentStub;
+        testGlobal.window = windowStub;
+        testGlobal.console = console;
+        testGlobal.acquireVsCodeApi = (): TestVSCodeApi => ({ postMessage: () => { /* noop */ } });
 
         try {
             const webviewJsPath = path.resolve(__dirname, '../../../media/webview.js');
@@ -82,9 +82,7 @@ suite('Panel overage indicator', () => {
             assert.ok(!/\(\+84 over\)/.test(summary.innerHTML), 'Overage label should be removed from summary');
         } finally {
             // Restore globals
-            (global as any).document = originalDocument;
-            (global as any).window = originalWindow;
-            (global as any).acquireVsCodeApi = originalAcquire;
+            restoreGlobals(globalsBackup);
         }
     });
 });

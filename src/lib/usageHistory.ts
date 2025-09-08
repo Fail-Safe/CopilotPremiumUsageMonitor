@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { RECENT_DATA_WINDOW_HOURS } from '../constants';
+import { RECENT_DATA_WINDOW_HOURS, STABILITY_THRESHOLD } from '../constants';
 
 export interface UsageSnapshot {
     timestamp: number;
@@ -126,7 +126,7 @@ export class UsageHistoryManager {
 
         let trend: 'increasing' | 'decreasing' | 'stable';
         const rateDifference = secondHalfAvgRate - firstHalfAvgRate;
-        const threshold = hourlyRate * 0.1; // 10% threshold for stability
+        const threshold = hourlyRate * STABILITY_THRESHOLD; // 10% threshold for stability
 
         if (Math.abs(rateDifference) < threshold) {
             trend = 'stable';

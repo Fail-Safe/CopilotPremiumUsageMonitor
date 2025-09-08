@@ -495,6 +495,12 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 		// Localized labels injected from extension
 		const L = ${JSON.stringify(L)};
 
+		function thresholdColor(percentage, palette) {
+			if (percentage >= 90) return palette.high;
+			if (percentage >= 75) return palette.medium;
+			return palette.low;
+		}
+
 		function renderUpdate(data) {
 			const { budget, spend, percentage, progressColor, lastSync, mode, included, includedUsed, trend, thresholds, view } = data;
 
@@ -586,8 +592,10 @@ export class CopilotUsageSidebarProvider implements vscode.WebviewViewProvider {
 			document.getElementById('budget-amount').textContent = \`$\${budgetSpent}/$\${budgetTotal}\`;
 
 			// Update colors based on centralized threshold palette (fallback to legacy if not provided)
-			const includedColor = (view && view.includedColor) ? view.includedColor : (includedPercentage >= 90 ? '#e51400' : includedPercentage >= 75 ? '#f0ad4e' : '#2d7d46');
-			const budgetColor = (view && view.budgetColor) ? view.budgetColor : (budgetPercentage >= 90 ? '#e51400' : budgetPercentage >= 75 ? '#f0ad4e' : '#f0ad4e');
+			const includedPalette = { high: '#e51400', medium: '#f0ad4e', low: '#2d7d46' };
+			const budgetPalette = { high: '#e51400', medium: '#f0ad4e', low: '#f0ad4e' };
+			const includedColor = (view && view.includedColor) ? view.includedColor : thresholdColor(includedPercentage, includedPalette);
+			const budgetColor = (view && view.budgetColor) ? view.budgetColor : thresholdColor(budgetPercentage, budgetPalette);
 
 			document.getElementById('included-circle').style.stroke = includedColor;
 			document.getElementById('budget-circle').style.stroke = budgetColor;

@@ -1,9 +1,10 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
+import { getTestGlobal, TestElement, TestDocument, TestWindow, TestVSCodeApi } from '../testGlobals';
 
 // Minimal element / DOM stubs sufficient for webview.js logic
-class Elem {
+class Elem implements TestElement {
     id?: string;
     tag: string;
     style: any = {};
@@ -54,7 +55,7 @@ const helpBtn = new Elem('button'); helpBtn.id = 'help'; register(helpBtn); cont
 const modeSelect = new Elem('select'); modeSelect.id = 'mode'; register(modeSelect); controls.appendChild(modeSelect);
 
 // Global document stub
-const documentStub = {
+const documentStub: TestDocument = {
     createElement: (tag: string) => new Elem(tag),
     getElementById: (id: string) => findById(id),
     querySelector: (sel: string) => root.querySelector(sel),
@@ -63,15 +64,16 @@ const documentStub = {
 
 // Capture registered message handler
 let messageHandler: ((ev: any) => void) | undefined;
-const windowStub: any = {
+const windowStub: TestWindow = {
     addEventListener: (type: string, handler: any) => { if (type === 'message') messageHandler = handler; },
     removeEventListener: () => { /* noop */ }
 };
 
-(global as any).document = documentStub;
-(global as any).window = windowStub;
-(global as any).console = console;
-(global as any).acquireVsCodeApi = () => ({ postMessage: () => { /* noop */ } });
+const testGlobal = getTestGlobal();
+testGlobal.document = documentStub;
+testGlobal.window = windowStub;
+testGlobal.console = console;
+testGlobal.acquireVsCodeApi = (): TestVSCodeApi => ({ postMessage: () => { /* noop */ } });
 
 suite('Webview stale state (no token)', () => {
     test('adds summary-error and unavailable message', () => {
@@ -81,14 +83,14 @@ suite('Webview stale state (no token)', () => {
         messageHandler = undefined;
         eval(code);
         // Fallback to hook when addEventListener path is bypassed in Node test env
-        if (!messageHandler && (global as any).window && (global as any).window.__cpumMessageHandler) {
-            messageHandler = (global as any).window.__cpumMessageHandler;
+        if (!messageHandler && testGlobal.window && (testGlobal.window as any).__cpumMessageHandler) {
+            messageHandler = (testGlobal.window as any).__cpumMessageHandler;
         }
         assert.ok(messageHandler, 'Expected message handler registered');
         const config = { mode: 'personal', org: '', hasSecurePat: false, residualPlaintext: false, noTokenStaleMessage: 'Awaiting secure token for personal spend updates.' };
         // Invoke as a window message event to mirror webview usage
         (messageHandler as any)({ data: { type: 'config', config } });
-        const summaryEl = (global as any).document.getElementById('summary') as any;
+        const summaryEl = testGlobal.document!.getElementById('summary') as any;
         assert.ok(summaryEl && summaryEl.classList.contains('summary-error'), 'summary-error class expected on summary');
         const unavailable = (summaryEl.children || []).find((c: any) => c.id === 'summary-unavailable');
         assert.ok(unavailable, 'Expected summary-unavailable element');
