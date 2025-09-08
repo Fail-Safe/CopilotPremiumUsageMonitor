@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { RECENT_DATA_WINDOW_HOURS } from '../constants';
 
 export interface UsageSnapshot {
     timestamp: number;
@@ -212,7 +213,7 @@ export class UsageHistoryManager {
         const estimatedKB = Math.round(jsonString.length / 1024 * 100) / 100;
         // Align with UI/tests that reason about "recent" data most of the time.
         // Prefer count for last 48 hours when available; otherwise fall back to total.
-        const cutoff = Date.now() - (48 * 60 * 60 * 1000);
+        const cutoff = Date.now() - (RECENT_DATA_WINDOW_HOURS * 60 * 60 * 1000);
         const recent = history.snapshots.filter(s => s.timestamp > cutoff).length;
         const count = recent > 0 ? recent : history.snapshots.length;
         return { snapshots: count, estimatedKB };
