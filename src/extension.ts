@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { computeUsageBar, pickIcon, formatRelativeTime } from './lib/format';
-import { computeIncludedOverageSummary } from './lib/usageUtils';
+import { computeIncludedOverageSummary, calculateIncludedQuantity, type BillingUsageItem } from './lib/usageUtils';
 import { readStoredToken, migrateSettingToken, writeToken, clearToken, getSecretStorageKey } from './secrets';
 import { deriveTokenState, recordMigrationKeep, recordSecureSetAndLegacyCleared, resetAllTokenStateWindows, debugSnapshot, recordSecureCleared } from './lib/tokenState';
 import { setSecretsLogger, logSecrets } from './secrets_log';
@@ -1921,19 +1921,6 @@ async function fetchOrgCopilotMetrics(org: string, token: string, opts?: { since
 	return { days: data.length, since: sinceIso, until: untilIso, engagedUsersSum, codeSuggestionsSum };
 }
 
-type BillingUsageItem = {
-	date: string;
-	product: string; // e.g., 'Copilot', 'Actions'
-	sku: string;
-	quantity: number;
-	unitType: string;
-	pricePerUnit: number;
-	grossAmount: number;
-	discountAmount: number;
-	netAmount: number;
-	repositoryName?: string;
-};
-
 async function fetchUserBillingUsage(username: string, token: string, opts: { year?: number; month?: number; day?: number; hour?: number; }) {
 	const octokit = await getOctokit(token);
 	const res = await octokit.request('GET /users/{username}/settings/billing/usage', {
@@ -1950,13 +1937,7 @@ async function fetchUserBillingUsage(username: string, token: string, opts: { ye
 	const totalQuantity = copilotItems.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
 	// Derive included units from discountAmount / pricePerUnit per item (guard division by zero).
 	// Round per-item included quantities to nearest whole unit since requests are integer counts.
-	const totalIncludedQuantity = copilotItems.reduce((sum, i) => {
-		const price = Number(i.pricePerUnit) || 0;
-		const discount = Number(i.discountAmount) || 0;
-		if (price <= 0) return sum;
-		const included = Math.round(discount / price);
-		return sum + included;
-	}, 0);
+	const totalIncludedQuantity = calculateIncludedQuantity(copilotItems);
 	// Overage units are any units beyond the included allotment.
 	const totalOverageQuantity = Math.max(0, totalQuantity - totalIncludedQuantity);
 	return { items: copilotItems, totalNetAmount, totalQuantity, totalIncludedQuantity, totalOverageQuantity };
