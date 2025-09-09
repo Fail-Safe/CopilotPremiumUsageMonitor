@@ -1,0 +1,7 @@
+![CI](https://img.shields.io/github/actions/workflow/status/Fail-Safe/CopilotPremiumUsageMonitor/ci.yml?branch=main) ![Coverage](https://img.shields.io/badge/coverage-N%2FA-lightgrey)
+
+## [0.7.1] - 2025-09-08
+### Changed
+- Updated extension icon (`media/icon.png`) for improved appearance in the Marketplace and VS Code (replaces previous icon). No runtime code changes.
+
+## [

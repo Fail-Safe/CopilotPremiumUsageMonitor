@@ -10,6 +10,10 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
 <!-- Placeholder for upcoming release notes. -->
+## [0.7.1] - 2025-09-08
+### Changed
+- Updated extension icon (`media/icon.png`) for improved appearance in the Marketplace and VS Code (replaces previous icon). No runtime code changes.
+
 ## [0.7.0] - 2025-09-06
 ### Added
 - Display of Included Premium Requests usage and remaining included units in the panel and status bar (breaks out included vs billable requests).
