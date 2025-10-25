@@ -142,7 +142,7 @@ jobs:
 
       - name: Upload coverage (lcov)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-${{ matrix.node }}-${{ matrix.vscode }}
           path: coverage/lcov.info
@@ -150,7 +150,7 @@ jobs:
 
       - name: Upload test logs if present (best-effort)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: logs-${{ matrix.node }}-${{ matrix.vscode }}
           path: |
@@ -160,7 +160,7 @@ jobs:
 
       - name: Upload build artifact
         if: matrix.vscode == env.PINNED_VERSION
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: build-out
           path: |
@@ -224,7 +224,7 @@ jobs:
         run: npm run package
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: extension-vsix
           path: '*.vsix'
