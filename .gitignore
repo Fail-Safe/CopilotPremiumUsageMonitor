@@ -3,6 +3,8 @@ node_modules/
 .vscode-test/
 *.vsix
 .DS_Store
+# Generated minified webview (built during bundle process)
+media/webview.min.js
 # Coverage artifacts (generated locally / in CI)
 .nyc_output/
 .node_coverage/

@@ -485,7 +485,7 @@ class UsagePanel {
 	private get webviewHtml(): string {
 		const webview = this.panel.webview;
 		const cacheBuster = Date.now(); // Add cache buster to force reload
-		const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.js')).toString() + '?v=' + cacheBuster;
+		const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.min.js')).toString() + '?v=' + cacheBuster;
 		const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'webview.css'));
 		const nonce = getNonce();
 		return `<!DOCTYPE html>

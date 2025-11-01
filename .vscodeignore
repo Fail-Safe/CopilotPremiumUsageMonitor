@@ -32,3 +32,13 @@ out/**
 
 # Exclude all source maps (can re-enable for debugging)
 **/*.map
+
+# Screenshots are for README only (displayed on Marketplace/GitHub, not needed in VSIX)
+media/sc-*.png
+
+# Large icons not needed in VSIX
+media/icon-*.png
+
+# Ship only minified webview JS
+media/webview.js
+!media/webview.min.js
