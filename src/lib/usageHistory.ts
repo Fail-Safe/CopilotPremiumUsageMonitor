@@ -283,10 +283,10 @@ export class UsageHistoryManager {
         // 1. Aggregate snapshots older than 30 days into daily aggregates
         const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
         const oldSnapshots = history.snapshots.filter(s => s.timestamp <= thirtyDaysAgo);
-        
+
         if (oldSnapshots.length > 0) {
             const newDailyAggregates = this.aggregateSnapshotsByDay(oldSnapshots);
-            
+
             // Merge with existing daily aggregates (avoid duplicates)
             const existingDates = new Set(history.dailyAggregates.map(d => d.date));
             for (const daily of newDailyAggregates) {
@@ -305,7 +305,7 @@ export class UsageHistoryManager {
 
         if (oldDailies.length > 0) {
             const newMonthlyAggregates = this.aggregateDailyByMonth(oldDailies);
-            
+
             // Merge with existing monthly aggregates (avoid duplicates)
             const existingMonths = new Set(history.monthlyAggregates.map(m => m.month));
             for (const monthly of newMonthlyAggregates) {
@@ -339,7 +339,7 @@ export class UsageHistoryManager {
         for (const snapshot of snapshots) {
             const date = new Date(snapshot.timestamp);
             const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-            
+
             if (!dailyMap.has(dateKey)) {
                 dailyMap.set(dateKey, []);
             }
@@ -348,7 +348,7 @@ export class UsageHistoryManager {
 
         // Create daily aggregates
         const dailyAggregates: DailyAggregate[] = [];
-        
+
         for (const [date, daySnapshots] of dailyMap.entries()) {
             if (daySnapshots.length === 0) continue;
 
@@ -359,7 +359,7 @@ export class UsageHistoryManager {
             const totalRequests = last.totalQuantity - first.totalQuantity;
             const totalSpend = last.spend - first.spend;
             const includedUsed = last.includedUsed - first.includedUsed;
-            
+
             // Calculate hourly rates
             const hourlyRates: number[] = [];
             for (let i = 1; i < daySnapshots.length; i++) {
@@ -370,8 +370,8 @@ export class UsageHistoryManager {
                 }
             }
 
-            const avgHourlyRate = hourlyRates.length > 0 
-                ? hourlyRates.reduce((sum, r) => sum + r, 0) / hourlyRates.length 
+            const avgHourlyRate = hourlyRates.length > 0
+                ? hourlyRates.reduce((sum, r) => sum + r, 0) / hourlyRates.length
                 : 0;
             const peakHourlyRate = hourlyRates.length > 0 ? Math.max(...hourlyRates) : 0;
 
@@ -396,7 +396,7 @@ export class UsageHistoryManager {
         // Group daily aggregates by month
         for (const daily of dailyAggregates) {
             const monthKey = daily.date.substring(0, 7); // "2025-11"
-            
+
             if (!monthlyMap.has(monthKey)) {
                 monthlyMap.set(monthKey, []);
             }
@@ -405,14 +405,14 @@ export class UsageHistoryManager {
 
         // Create monthly aggregates
         const monthlyAggregates: MonthlyAggregate[] = [];
-        
+
         for (const [month, monthDailies] of monthlyMap.entries()) {
             if (monthDailies.length === 0) continue;
 
             const totalRequests = monthDailies.reduce((sum, d) => sum + d.totalRequests, 0);
             const totalSpend = monthDailies.reduce((sum, d) => sum + d.totalSpend, 0);
             const includedUsed = monthDailies.reduce((sum, d) => sum + d.includedUsed, 0);
-            
+
             const avgDailyRate = monthDailies.reduce((sum, d) => sum + d.avgHourlyRate * 24, 0) / monthDailies.length;
             const peakDailyRate = Math.max(...monthDailies.map(d => d.avgHourlyRate * 24));
             const daysActive = monthDailies.length;
@@ -446,7 +446,7 @@ export class UsageHistoryManager {
         const history = this.getHistory();
         const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
         const cutoffDateStr = `${cutoffDate.getFullYear()}-${String(cutoffDate.getMonth() + 1).padStart(2, '0')}-${String(cutoffDate.getDate()).padStart(2, '0')}`;
-        
+
         return history.dailyAggregates
             .filter(d => d.date >= cutoffDateStr)
             .sort((a, b) => b.date.localeCompare(a.date));
@@ -484,4 +484,467 @@ export class UsageHistoryManager {
             previousMonths: comparisons
         };
     }
+
+    /**
+     * Analyze multi-month usage patterns and trends
+     * Provides intelligent insights based on historical data
+     */
+    analyzeMultiMonthTrends(): MultiMonthAnalysis | null {
+        const monthlyHistory = this.getMonthlyHistory();
+        
+        if (monthlyHistory.length < 2) {
+            return null; // Need at least 2 months for trend analysis
+        }
+
+        // Sort chronologically (oldest first for analysis)
+        const sortedHistory = [...monthlyHistory].sort((a, b) => a.month.localeCompare(b.month));
+        
+        // Calculate growth metrics
+        const growthTrend = this.calculateGrowthTrend(sortedHistory);
+        
+        // Detect seasonality (requires 12+ months)
+        const seasonality = sortedHistory.length >= 12 
+            ? this.detectSeasonality(sortedHistory)
+            : null;
+        
+        // Calculate moving averages
+        const movingAverages = this.calculateMovingAverages(sortedHistory);
+        
+        // Predict next month's usage
+        const prediction = this.predictNextMonth(sortedHistory, growthTrend, seasonality);
+        
+        // Identify anomalies
+        const anomalies = this.identifyAnomalies(sortedHistory, movingAverages);
+        
+        // Generate insights
+        const insights = this.generateInsights(sortedHistory, growthTrend, seasonality, anomalies);
+        
+        return {
+            growthTrend,
+            seasonality,
+            movingAverages,
+            prediction,
+            anomalies,
+            insights,
+            dataQuality: this.assessDataQuality(sortedHistory)
+        };
+    }
+
+    private calculateGrowthTrend(sortedHistory: MonthlyAggregate[]): GrowthTrend {
+        const requestsData = sortedHistory.map(m => m.totalRequests);
+        const spendData = sortedHistory.map(m => m.totalSpend);
+        
+        // Calculate month-over-month growth rates
+        const requestsGrowthRates: number[] = [];
+        const spendGrowthRates: number[] = [];
+        
+        for (let i = 1; i < sortedHistory.length; i++) {
+            const prevRequests = sortedHistory[i - 1].totalRequests;
+            const currRequests = sortedHistory[i].totalRequests;
+            if (prevRequests > 0) {
+                requestsGrowthRates.push(((currRequests - prevRequests) / prevRequests) * 100);
+            }
+            
+            const prevSpend = sortedHistory[i - 1].totalSpend;
+            const currSpend = sortedHistory[i].totalSpend;
+            if (prevSpend > 0) {
+                spendGrowthRates.push(((currSpend - prevSpend) / prevSpend) * 100);
+            }
+        }
+        
+        // Average growth rate
+        const avgRequestsGrowth = requestsGrowthRates.length > 0
+            ? requestsGrowthRates.reduce((sum, r) => sum + r, 0) / requestsGrowthRates.length
+            : 0;
+        const avgSpendGrowth = spendGrowthRates.length > 0
+            ? spendGrowthRates.reduce((sum, r) => sum + r, 0) / spendGrowthRates.length
+            : 0;
+        
+        // Trend direction using linear regression
+        const trendDirection = this.calculateLinearTrend(requestsData);
+        
+        // Volatility (standard deviation of growth rates)
+        const volatility = this.calculateStandardDeviation(requestsGrowthRates);
+        
+        // Determine trend type
+        let trendType: 'accelerating' | 'decelerating' | 'steady' | 'volatile';
+        if (volatility > 30) {
+            trendType = 'volatile';
+        } else if (requestsGrowthRates.length >= 3) {
+            const recentGrowth = requestsGrowthRates.slice(-3).reduce((sum, r) => sum + r, 0) / 3;
+            const olderGrowth = requestsGrowthRates.slice(0, -3).reduce((sum, r) => sum + r, 0) / (requestsGrowthRates.length - 3);
+            if (recentGrowth > olderGrowth + 5) {
+                trendType = 'accelerating';
+            } else if (recentGrowth < olderGrowth - 5) {
+                trendType = 'decelerating';
+            } else {
+                trendType = 'steady';
+            }
+        } else {
+            trendType = 'steady';
+        }
+        
+        return {
+            direction: trendDirection.slope > 0 ? 'increasing' : trendDirection.slope < 0 ? 'decreasing' : 'stable',
+            avgMonthlyGrowthRequests: avgRequestsGrowth,
+            avgMonthlyGrowthSpend: avgSpendGrowth,
+            trendType,
+            volatility,
+            confidence: this.calculateTrendConfidence(sortedHistory, volatility)
+        };
+    }
+
+    private detectSeasonality(sortedHistory: MonthlyAggregate[]): SeasonalityPattern | null {
+        if (sortedHistory.length < 12) return null;
+        
+        // Group by month of year (Jan, Feb, etc.)
+        const monthlyPatterns = new Map<number, number[]>();
+        
+        for (const record of sortedHistory) {
+            const month = parseInt(record.month.split('-')[1], 10); // Extract month number
+            if (!monthlyPatterns.has(month)) {
+                monthlyPatterns.set(month, []);
+            }
+            monthlyPatterns.get(month)!.push(record.totalRequests);
+        }
+        
+        // Calculate average for each month
+        const monthlyAverages = new Map<number, number>();
+        for (const [month, values] of monthlyPatterns.entries()) {
+            const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
+            monthlyAverages.set(month, avg);
+        }
+        
+        // Calculate overall average
+        const overallAvg = Array.from(monthlyAverages.values()).reduce((sum, v) => sum + v, 0) / monthlyAverages.size;
+        
+        // Detect peaks and troughs
+        const deviations = Array.from(monthlyAverages.entries()).map(([month, avg]) => ({
+            month,
+            deviation: ((avg - overallAvg) / overallAvg) * 100
+        }));
+        
+        // Sort by deviation to find peaks and troughs
+        const sortedByDeviation = [...deviations].sort((a, b) => b.deviation - a.deviation);
+        const peakMonths = sortedByDeviation.slice(0, 3).filter(d => d.deviation > 10).map(d => d.month);
+        const troughMonths = sortedByDeviation.slice(-3).filter(d => d.deviation < -10).map(d => d.month);
+        
+        // Seasonal strength (variance explained by seasonality)
+        const seasonalVariance = this.calculateVariance(deviations.map(d => d.deviation));
+        const strength: 'strong' | 'moderate' | 'weak' = 
+            seasonalVariance > 400 ? 'strong' : seasonalVariance > 100 ? 'moderate' : 'weak';
+        
+        return {
+            detected: peakMonths.length > 0 || troughMonths.length > 0,
+            strength,
+            peakMonths,
+            troughMonths,
+            monthlyFactors: Array.from(monthlyAverages.entries()).map(([month, avg]) => ({
+                month,
+                factor: avg / overallAvg,
+                avgRequests: Math.round(avg)
+            }))
+        };
+    }
+
+    private calculateMovingAverages(sortedHistory: MonthlyAggregate[]): MovingAverages {
+        const calculate = (data: number[], window: number): number[] => {
+            const result: number[] = [];
+            for (let i = window - 1; i < data.length; i++) {
+                const slice = data.slice(i - window + 1, i + 1);
+                const avg = slice.reduce((sum, v) => sum + v, 0) / slice.length;
+                result.push(avg);
+            }
+            return result;
+        };
+        
+        const requests = sortedHistory.map(m => m.totalRequests);
+        const spend = sortedHistory.map(m => m.totalSpend);
+        
+        return {
+            ma3Requests: calculate(requests, 3),
+            ma6Requests: calculate(requests, 6),
+            ma3Spend: calculate(spend, 3),
+            ma6Spend: calculate(spend, 6)
+        };
+    }
+
+    private predictNextMonth(
+        sortedHistory: MonthlyAggregate[], 
+        growthTrend: GrowthTrend,
+        seasonality: SeasonalityPattern | null
+    ): MonthlyPrediction {
+        const latestMonth = sortedHistory[sortedHistory.length - 1];
+        
+        // Base prediction on linear trend
+        const trend = this.calculateLinearTrend(sortedHistory.map(m => m.totalRequests));
+        let predictedRequests = latestMonth.totalRequests + trend.slope;
+        let predictedSpend = latestMonth.totalSpend * (1 + (growthTrend.avgMonthlyGrowthSpend / 100));
+        
+        // Apply seasonal adjustment if detected
+        if (seasonality && seasonality.detected && seasonality.strength !== 'weak') {
+            const nextMonth = new Date();
+            nextMonth.setMonth(nextMonth.getMonth() + 1);
+            const nextMonthNum = nextMonth.getMonth() + 1; // 1-based
+            
+            const seasonalFactor = seasonality.monthlyFactors.find(f => f.month === nextMonthNum);
+            if (seasonalFactor) {
+                predictedRequests *= seasonalFactor.factor;
+                predictedSpend *= seasonalFactor.factor;
+            }
+        }
+        
+        // Calculate confidence intervals (±1 standard deviation)
+        const historicalRequests = sortedHistory.map(m => m.totalRequests);
+        const stdDev = this.calculateStandardDeviation(historicalRequests);
+        
+        return {
+            month: this.getNextMonthString(),
+            predictedRequests: Math.round(predictedRequests),
+            predictedSpend: Math.round(predictedSpend * 100) / 100,
+            confidenceInterval: {
+                lower: Math.max(0, Math.round(predictedRequests - stdDev)),
+                upper: Math.round(predictedRequests + stdDev)
+            },
+            confidence: growthTrend.confidence
+        };
+    }
+
+    private identifyAnomalies(sortedHistory: MonthlyAggregate[], movingAverages: MovingAverages): MonthlyAnomaly[] {
+        const anomalies: MonthlyAnomaly[] = [];
+        
+        if (movingAverages.ma6Requests.length === 0) {
+            return anomalies;
+        }
+        
+        // Compare recent months against 6-month moving average
+        const startIdx = Math.max(0, sortedHistory.length - movingAverages.ma6Requests.length);
+        
+        for (let i = 0; i < movingAverages.ma6Requests.length; i++) {
+            const monthIdx = startIdx + i;
+            const month = sortedHistory[monthIdx];
+            const ma6 = movingAverages.ma6Requests[i];
+            const deviation = ((month.totalRequests - ma6) / ma6) * 100;
+            
+            // Flag as anomaly if deviation > 30%
+            if (Math.abs(deviation) > 30) {
+                anomalies.push({
+                    month: month.month,
+                    type: deviation > 0 ? 'spike' : 'drop',
+                    deviation: Math.round(deviation),
+                    actualRequests: month.totalRequests,
+                    expectedRequests: Math.round(ma6),
+                    possibleCause: this.inferAnomalyCause(deviation, month)
+                });
+            }
+        }
+        
+        return anomalies;
+    }
+
+    private generateInsights(
+        sortedHistory: MonthlyAggregate[],
+        growthTrend: GrowthTrend,
+        seasonality: SeasonalityPattern | null,
+        anomalies: MonthlyAnomaly[]
+    ): string[] {
+        const insights: string[] = [];
+        
+        // Growth insights
+        if (growthTrend.avgMonthlyGrowthRequests > 10) {
+            insights.push(`⚠️ Usage is growing rapidly at ${growthTrend.avgMonthlyGrowthRequests.toFixed(1)}% per month. Consider increasing your budget.`);
+        } else if (growthTrend.avgMonthlyGrowthRequests < -10) {
+            insights.push(`📉 Usage is declining at ${Math.abs(growthTrend.avgMonthlyGrowthRequests).toFixed(1)}% per month. You may be able to reduce your budget.`);
+        } else if (growthTrend.trendType === 'steady') {
+            insights.push(`✅ Usage is stable with minimal fluctuation (${growthTrend.avgMonthlyGrowthRequests.toFixed(1)}% avg growth).`);
+        }
+        
+        // Volatility insights
+        if (growthTrend.trendType === 'volatile') {
+            insights.push(`📊 Usage patterns are volatile. Consider reviewing what's driving irregular usage.`);
+        } else if (growthTrend.trendType === 'accelerating') {
+            insights.push(`📈 Usage growth is accelerating. Plan for continued increases.`);
+        } else if (growthTrend.trendType === 'decelerating') {
+            insights.push(`📉 Usage growth is slowing down, approaching stability.`);
+        }
+        
+        // Seasonality insights
+        if (seasonality && seasonality.detected) {
+            if (seasonality.strength === 'strong') {
+                const peakMonthNames = seasonality.peakMonths.map(m => this.getMonthName(m));
+                const troughMonthNames = seasonality.troughMonths.map(m => this.getMonthName(m));
+                
+                if (peakMonthNames.length > 0) {
+                    insights.push(`📅 Strong seasonal pattern: Peak usage in ${peakMonthNames.join(', ')}.`);
+                }
+                if (troughMonthNames.length > 0) {
+                    insights.push(`📅 Lower usage typically occurs in ${troughMonthNames.join(', ')}.`);
+                }
+            }
+        }
+        
+        // Anomaly insights
+        if (anomalies.length > 0) {
+            const recentAnomaly = anomalies[anomalies.length - 1];
+            if (recentAnomaly.type === 'spike') {
+                insights.push(`🔔 Unusual spike in ${recentAnomaly.month}: ${Math.abs(recentAnomaly.deviation)}% above normal. ${recentAnomaly.possibleCause}`);
+            } else {
+                insights.push(`🔔 Unusual drop in ${recentAnomaly.month}: ${Math.abs(recentAnomaly.deviation)}% below normal. ${recentAnomaly.possibleCause}`);
+            }
+        }
+        
+        // Historical context
+        if (sortedHistory.length >= 12) {
+            const firstMonth = sortedHistory[0];
+            const lastMonth = sortedHistory[sortedHistory.length - 1];
+            const totalGrowth = ((lastMonth.totalRequests - firstMonth.totalRequests) / firstMonth.totalRequests) * 100;
+            insights.push(`📊 Over ${sortedHistory.length} months, usage has ${totalGrowth > 0 ? 'increased' : 'decreased'} by ${Math.abs(totalGrowth).toFixed(1)}%.`);
+        }
+        
+        return insights;
+    }
+
+    private assessDataQuality(sortedHistory: MonthlyAggregate[]): DataQuality {
+        const monthCount = sortedHistory.length;
+        const hasConsistentActivity = sortedHistory.every(m => m.daysActive >= 20);
+        
+        let qualityScore: 'excellent' | 'good' | 'fair' | 'poor';
+        let completeness: number;
+        
+        if (monthCount >= 12 && hasConsistentActivity) {
+            qualityScore = 'excellent';
+            completeness = 100;
+        } else if (monthCount >= 6) {
+            qualityScore = 'good';
+            completeness = Math.min(100, (monthCount / 12) * 100);
+        } else if (monthCount >= 3) {
+            qualityScore = 'fair';
+            completeness = (monthCount / 12) * 100;
+        } else {
+            qualityScore = 'poor';
+            completeness = (monthCount / 12) * 100;
+        }
+        
+        return {
+            score: qualityScore,
+            monthCount,
+            completeness: Math.round(completeness),
+            recommendation: monthCount < 6 
+                ? 'Collect at least 6 months of data for reliable trend analysis.'
+                : monthCount < 12
+                ? 'Collect 12+ months for seasonal pattern detection.'
+                : 'Sufficient data for comprehensive analysis.'
+        };
+    }
+
+    // Helper methods
+    private calculateLinearTrend(data: number[]): { slope: number; intercept: number } {
+        const n = data.length;
+        const x = Array.from({ length: n }, (_, i) => i);
+        const sumX = x.reduce((sum, v) => sum + v, 0);
+        const sumY = data.reduce((sum, v) => sum + v, 0);
+        const sumXY = x.reduce((sum, v, i) => sum + v * data[i], 0);
+        const sumX2 = x.reduce((sum, v) => sum + v * v, 0);
+        
+        const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+        const intercept = (sumY - slope * sumX) / n;
+        
+        return { slope, intercept };
+    }
+
+    private calculateStandardDeviation(numbers: number[]): number {
+        if (numbers.length === 0) return 0;
+        const variance = this.calculateVariance(numbers);
+        return Math.sqrt(variance);
+    }
+
+    private calculateTrendConfidence(history: MonthlyAggregate[], volatility: number): 'high' | 'medium' | 'low' {
+        if (history.length >= 12 && volatility < 20) return 'high';
+        if (history.length >= 6 && volatility < 40) return 'medium';
+        return 'low';
+    }
+
+    private inferAnomalyCause(deviation: number, month: MonthlyAggregate): string {
+        if (Math.abs(deviation) > 50) {
+            return 'Possible major event or data collection issue.';
+        }
+        return 'Review activity during this period for unusual patterns.';
+    }
+
+    private getNextMonthString(): string {
+        const next = new Date();
+        next.setMonth(next.getMonth() + 1);
+        return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    private getMonthName(monthNum: number): string {
+        const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return names[monthNum - 1] || `Month ${monthNum}`;
+    }
+}
+
+// Type definitions for multi-month analysis
+export interface MultiMonthAnalysis {
+    growthTrend: GrowthTrend;
+    seasonality: SeasonalityPattern | null;
+    movingAverages: MovingAverages;
+    prediction: MonthlyPrediction;
+    anomalies: MonthlyAnomaly[];
+    insights: string[];
+    dataQuality: DataQuality;
+}
+
+export interface GrowthTrend {
+    direction: 'increasing' | 'decreasing' | 'stable';
+    avgMonthlyGrowthRequests: number;   // Percentage
+    avgMonthlyGrowthSpend: number;      // Percentage
+    trendType: 'accelerating' | 'decelerating' | 'steady' | 'volatile';
+    volatility: number;                 // Standard deviation of growth rates
+    confidence: 'high' | 'medium' | 'low';
+}
+
+export interface SeasonalityPattern {
+    detected: boolean;
+    strength: 'strong' | 'moderate' | 'weak';
+    peakMonths: number[];               // Month numbers (1-12) with highest usage
+    troughMonths: number[];             // Month numbers with lowest usage
+    monthlyFactors: Array<{
+        month: number;
+        factor: number;                 // Multiplier relative to average (1.0 = average)
+        avgRequests: number;
+    }>;
+}
+
+export interface MovingAverages {
+    ma3Requests: number[];              // 3-month moving average
+    ma6Requests: number[];              // 6-month moving average
+    ma3Spend: number[];
+    ma6Spend: number[];
+}
+
+export interface MonthlyPrediction {
+    month: string;
+    predictedRequests: number;
+    predictedSpend: number;
+    confidenceInterval: {
+        lower: number;
+        upper: number;
+    };
+    confidence: 'high' | 'medium' | 'low';
+}
+
+export interface MonthlyAnomaly {
+    month: string;
+    type: 'spike' | 'drop';
+    deviation: number;                  // Percentage deviation from expected
+    actualRequests: number;
+    expectedRequests: number;
+    possibleCause: string;
+}
+
+export interface DataQuality {
+    score: 'excellent' | 'good' | 'fair' | 'poor';
+    monthCount: number;
+    completeness: number;               // Percentage (0-100)
+    recommendation: string;
 }
