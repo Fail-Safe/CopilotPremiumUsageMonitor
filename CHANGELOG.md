@@ -10,6 +10,13 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
 <!-- Placeholder for upcoming release notes. -->
+## [0.7.2] - 2025-11-01
+### Fixed
+- Improved test stability by increasing timing tolerance in flaky CI test to handle variability in GitHub Actions environment.
+### Changed
+- Updated dependencies: @octokit/rest (22.0.1), TypeScript (5.9.3), @vscode/vsce (3.6.2), tar-fs (2.1.4), mocha, eslint stack (@typescript-eslint 8.44.0, eslint 9.36.0), and build tooling (esbuild, rimraf).
+- Updated CI workflows: actions/setup-node (v6), actions/upload-artifact (v5), actions/download-artifact (v6).
+
 ## [0.7.1] - 2025-09-08
 ### Changed
 - Updated extension icon (`media/icon.png`) for improved appearance in the Marketplace and VS Code (replaces previous icon). No runtime code changes.
