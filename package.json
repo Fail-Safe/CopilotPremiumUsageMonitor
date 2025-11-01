@@ -256,7 +256,7 @@
   ],
   "scripts": {
     "build:bundle": "tsc -p ./ && npm run bundle && npm run bundle:webview && npm run postbundle",
-    "build:dev": "tsc -p ./",
+    "build:dev": "tsc -p ./ && npm run bundle:webview",
     "bundle": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/extension.js --minify",
     "bundle:webview": "esbuild media/webview.js --minify --outfile=media/webview.min.js",
     "clean:full": "bash scripts/clean-artifacts.sh && git clean -fdX || true",
