@@ -200,7 +200,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Download build artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: build-out
         continue-on-error: true
