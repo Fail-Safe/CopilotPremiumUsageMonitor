@@ -10,6 +10,14 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
 <!-- Placeholder for upcoming release notes. -->
+## [0.8.0] - 2025-11-01
+### Changed
+- **VSIX package size optimization**: Reduced extension download size by ~1.89 MB (96.5% reduction in media assets).
+  - Resized extension icon from 512x512 to 128x128 (saved 284 KB).
+  - Minified webview JavaScript with esbuild (saved 19 KB).
+  - Excluded screenshots from VSIX package (saved 1.6 MB) - screenshots remain visible on Marketplace and GitHub.
+- Updated VS Code engine requirement to match @types/vscode (^1.104.0).
+
 ## [0.7.2] - 2025-11-01
 ### Fixed
 - Improved test stability by increasing timing tolerance in flaky CI test to handle variability in GitHub Actions environment.
