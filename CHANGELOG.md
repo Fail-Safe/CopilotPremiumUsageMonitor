@@ -10,6 +10,10 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
 <!-- Placeholder for upcoming release notes. -->
+## [0.8.1] - 2025-11-01
+### Fixed
+- Development build script now generates minified webview assets to prevent test failures in CI environments.
+
 ## [0.8.0] - 2025-11-01
 ### Changed
 - **VSIX package size optimization**: Reduced extension download size by ~1.89 MB (96.5% reduction in media assets).
