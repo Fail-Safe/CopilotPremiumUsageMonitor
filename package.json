@@ -303,7 +303,7 @@
     "typescript": "^5.4.5"
   },
   "dependencies": {
-    "@octokit/rest": "^22.0.0",
+    "@octokit/rest": "^22.0.1",
     "vscode-nls": "^5.2.0"
   },
   "nyc": {
