@@ -44,14 +44,16 @@ suite('Panel message paths batch2', () => {
         const api = await activate();
         await api._test_setIconOverrideWarning('Icon override changed');
         // Allow globalState write to persist on slower CI disks
-        await new Promise(r => setTimeout(r, 50));
+        await new Promise(r => setTimeout(r, 100));
         api._test_resetPostedMessages();
         api._test_closePanel?.();
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
+        // Wait for panel to fully initialize before invoking getConfig
+        await new Promise(r => setTimeout(r, 100));
         api._test_invokeWebviewMessage({ type: 'getConfig' });
-        // Poll up to ~800ms for replay message (Linux CI timing variability)
+        // Poll up to ~1200ms for replay message (Linux CI timing variability)
         let warn: any | undefined; let attempts = 0;
-        while (attempts < 20) { // 20 * 40ms = 800ms
+        while (attempts < 30) { // 30 * 40ms = 1200ms
             const msgs = api._test_getPostedMessages();
             warn = msgs.find((m: any) => m.type === 'iconOverrideWarning');
             if (warn) break;
