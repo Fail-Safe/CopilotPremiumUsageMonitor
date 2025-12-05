@@ -1,6 +1,22 @@
 import * as nls from 'vscode-nls';
 const localize = nls.loadMessageBundle();
 
+const DEFAULT_USAGE_FRACTION_DIGITS = 3;
+
+/**
+ * Normalize a numeric usage quantity by constraining it to a sane number of fractional digits.
+ * Helps prevent floating point artifacts (e.g. 406.59000000000003) from leaking into the UI.
+ */
+export function normalizeUsageQuantity(value: unknown, fractionDigits = DEFAULT_USAGE_FRACTION_DIGITS): number {
+    const num = Number(value);
+    if (!isFinite(num)) {
+        return 0;
+    }
+    const digits = Math.max(0, Math.min(10, Math.floor(fractionDigits)));
+    const factor = Math.pow(10, digits);
+    return Math.round(num * factor) / factor;
+}
+
 export type BillingUsageItem = {
     date: string;
     product: string; // e.g., 'Copilot', 'Actions'
@@ -32,11 +48,13 @@ export function calculateIncludedQuantity(copilotItems: BillingUsageItem[]): num
 export function computeIncludedOverageSummary(lastBilling: any, includedOverride?: number) {
     try {
         if (!lastBilling) return '';
-        const total = Number(lastBilling.totalQuantity || 0);
+        const total = normalizeUsageQuantity(lastBilling.totalQuantity);
         // Prefer an explicit included override (from selected plan or user-configured setting)
         // otherwise fall back to the billing-provided included quantity.
-        const included = typeof includedOverride === 'number' ? Number(includedOverride) : Number(lastBilling.totalIncludedQuantity || 0) || 0;
-        const overage = Math.max(0, total - included);
+        const included = normalizeUsageQuantity(
+            typeof includedOverride === 'number' ? includedOverride : lastBilling.totalIncludedQuantity
+        );
+        const overage = normalizeUsageQuantity(Math.max(0, total - included));
         const price = Number(lastBilling.pricePerPremiumRequest || 0.04) || 0.04;
         // Use GitHub nomenclature.
         const includedLabel = localize('cpum.statusbar.included', 'Included Premium Requests');

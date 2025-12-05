@@ -455,9 +455,9 @@ export class UsageHistoryManager {
     /**
      * Compare current month to previous months
      */
-    getMonthComparison(currentMonthRequests: number): { 
-        currentMonth: string; 
-        previousMonths: Array<{ month: string; requests: number; difference: number; percentChange: number }> 
+    getMonthComparison(currentMonthRequests: number): {
+        currentMonth: string;
+        previousMonths: Array<{ month: string; requests: number; difference: number; percentChange: number }>
     } | null {
         const now = new Date();
         const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -474,8 +474,8 @@ export class UsageHistoryManager {
                 month: m.month,
                 requests: m.totalRequests,
                 difference: currentMonthRequests - m.totalRequests,
-                percentChange: m.totalRequests > 0 
-                    ? ((currentMonthRequests - m.totalRequests) / m.totalRequests) * 100 
+                percentChange: m.totalRequests > 0
+                    ? ((currentMonthRequests - m.totalRequests) / m.totalRequests) * 100
                     : 0
             }));
 
@@ -491,34 +491,34 @@ export class UsageHistoryManager {
      */
     analyzeMultiMonthTrends(): MultiMonthAnalysis | null {
         const monthlyHistory = this.getMonthlyHistory();
-        
+
         if (monthlyHistory.length < 2) {
             return null; // Need at least 2 months for trend analysis
         }
 
         // Sort chronologically (oldest first for analysis)
         const sortedHistory = [...monthlyHistory].sort((a, b) => a.month.localeCompare(b.month));
-        
+
         // Calculate growth metrics
         const growthTrend = this.calculateGrowthTrend(sortedHistory);
-        
+
         // Detect seasonality (requires 12+ months)
-        const seasonality = sortedHistory.length >= 12 
+        const seasonality = sortedHistory.length >= 12
             ? this.detectSeasonality(sortedHistory)
             : null;
-        
+
         // Calculate moving averages
         const movingAverages = this.calculateMovingAverages(sortedHistory);
-        
+
         // Predict next month's usage
         const prediction = this.predictNextMonth(sortedHistory, growthTrend, seasonality);
-        
+
         // Identify anomalies
         const anomalies = this.identifyAnomalies(sortedHistory, movingAverages);
-        
+
         // Generate insights
         const insights = this.generateInsights(sortedHistory, growthTrend, seasonality, anomalies);
-        
+
         return {
             growthTrend,
             seasonality,
@@ -533,25 +533,25 @@ export class UsageHistoryManager {
     private calculateGrowthTrend(sortedHistory: MonthlyAggregate[]): GrowthTrend {
         const requestsData = sortedHistory.map(m => m.totalRequests);
         const spendData = sortedHistory.map(m => m.totalSpend);
-        
+
         // Calculate month-over-month growth rates
         const requestsGrowthRates: number[] = [];
         const spendGrowthRates: number[] = [];
-        
+
         for (let i = 1; i < sortedHistory.length; i++) {
             const prevRequests = sortedHistory[i - 1].totalRequests;
             const currRequests = sortedHistory[i].totalRequests;
             if (prevRequests > 0) {
                 requestsGrowthRates.push(((currRequests - prevRequests) / prevRequests) * 100);
             }
-            
+
             const prevSpend = sortedHistory[i - 1].totalSpend;
             const currSpend = sortedHistory[i].totalSpend;
             if (prevSpend > 0) {
                 spendGrowthRates.push(((currSpend - prevSpend) / prevSpend) * 100);
             }
         }
-        
+
         // Average growth rate
         const avgRequestsGrowth = requestsGrowthRates.length > 0
             ? requestsGrowthRates.reduce((sum, r) => sum + r, 0) / requestsGrowthRates.length
@@ -559,13 +559,13 @@ export class UsageHistoryManager {
         const avgSpendGrowth = spendGrowthRates.length > 0
             ? spendGrowthRates.reduce((sum, r) => sum + r, 0) / spendGrowthRates.length
             : 0;
-        
+
         // Trend direction using linear regression
         const trendDirection = this.calculateLinearTrend(requestsData);
-        
+
         // Volatility (standard deviation of growth rates)
         const volatility = this.calculateStandardDeviation(requestsGrowthRates);
-        
+
         // Determine trend type
         let trendType: 'accelerating' | 'decelerating' | 'steady' | 'volatile';
         if (volatility > 30) {
@@ -583,7 +583,7 @@ export class UsageHistoryManager {
         } else {
             trendType = 'steady';
         }
-        
+
         return {
             direction: trendDirection.slope > 0 ? 'increasing' : trendDirection.slope < 0 ? 'decreasing' : 'stable',
             avgMonthlyGrowthRequests: avgRequestsGrowth,
@@ -596,10 +596,10 @@ export class UsageHistoryManager {
 
     private detectSeasonality(sortedHistory: MonthlyAggregate[]): SeasonalityPattern | null {
         if (sortedHistory.length < 12) return null;
-        
+
         // Group by month of year (Jan, Feb, etc.)
         const monthlyPatterns = new Map<number, number[]>();
-        
+
         for (const record of sortedHistory) {
             const month = parseInt(record.month.split('-')[1], 10); // Extract month number
             if (!monthlyPatterns.has(month)) {
@@ -607,33 +607,33 @@ export class UsageHistoryManager {
             }
             monthlyPatterns.get(month)!.push(record.totalRequests);
         }
-        
+
         // Calculate average for each month
         const monthlyAverages = new Map<number, number>();
         for (const [month, values] of monthlyPatterns.entries()) {
             const avg = values.reduce((sum, v) => sum + v, 0) / values.length;
             monthlyAverages.set(month, avg);
         }
-        
+
         // Calculate overall average
         const overallAvg = Array.from(monthlyAverages.values()).reduce((sum, v) => sum + v, 0) / monthlyAverages.size;
-        
+
         // Detect peaks and troughs
         const deviations = Array.from(monthlyAverages.entries()).map(([month, avg]) => ({
             month,
             deviation: ((avg - overallAvg) / overallAvg) * 100
         }));
-        
+
         // Sort by deviation to find peaks and troughs
         const sortedByDeviation = [...deviations].sort((a, b) => b.deviation - a.deviation);
         const peakMonths = sortedByDeviation.slice(0, 3).filter(d => d.deviation > 10).map(d => d.month);
         const troughMonths = sortedByDeviation.slice(-3).filter(d => d.deviation < -10).map(d => d.month);
-        
+
         // Seasonal strength (variance explained by seasonality)
         const seasonalVariance = this.calculateVariance(deviations.map(d => d.deviation));
-        const strength: 'strong' | 'moderate' | 'weak' = 
+        const strength: 'strong' | 'moderate' | 'weak' =
             seasonalVariance > 400 ? 'strong' : seasonalVariance > 100 ? 'moderate' : 'weak';
-        
+
         return {
             detected: peakMonths.length > 0 || troughMonths.length > 0,
             strength,
@@ -657,10 +657,10 @@ export class UsageHistoryManager {
             }
             return result;
         };
-        
+
         const requests = sortedHistory.map(m => m.totalRequests);
         const spend = sortedHistory.map(m => m.totalSpend);
-        
+
         return {
             ma3Requests: calculate(requests, 3),
             ma6Requests: calculate(requests, 6),
@@ -670,34 +670,34 @@ export class UsageHistoryManager {
     }
 
     private predictNextMonth(
-        sortedHistory: MonthlyAggregate[], 
+        sortedHistory: MonthlyAggregate[],
         growthTrend: GrowthTrend,
         seasonality: SeasonalityPattern | null
     ): MonthlyPrediction {
         const latestMonth = sortedHistory[sortedHistory.length - 1];
-        
+
         // Base prediction on linear trend
         const trend = this.calculateLinearTrend(sortedHistory.map(m => m.totalRequests));
         let predictedRequests = latestMonth.totalRequests + trend.slope;
         let predictedSpend = latestMonth.totalSpend * (1 + (growthTrend.avgMonthlyGrowthSpend / 100));
-        
+
         // Apply seasonal adjustment if detected
         if (seasonality && seasonality.detected && seasonality.strength !== 'weak') {
             const nextMonth = new Date();
             nextMonth.setMonth(nextMonth.getMonth() + 1);
             const nextMonthNum = nextMonth.getMonth() + 1; // 1-based
-            
+
             const seasonalFactor = seasonality.monthlyFactors.find(f => f.month === nextMonthNum);
             if (seasonalFactor) {
                 predictedRequests *= seasonalFactor.factor;
                 predictedSpend *= seasonalFactor.factor;
             }
         }
-        
+
         // Calculate confidence intervals (±1 standard deviation)
         const historicalRequests = sortedHistory.map(m => m.totalRequests);
         const stdDev = this.calculateStandardDeviation(historicalRequests);
-        
+
         return {
             month: this.getNextMonthString(),
             predictedRequests: Math.round(predictedRequests),
@@ -712,20 +712,20 @@ export class UsageHistoryManager {
 
     private identifyAnomalies(sortedHistory: MonthlyAggregate[], movingAverages: MovingAverages): MonthlyAnomaly[] {
         const anomalies: MonthlyAnomaly[] = [];
-        
+
         if (movingAverages.ma6Requests.length === 0) {
             return anomalies;
         }
-        
+
         // Compare recent months against 6-month moving average
         const startIdx = Math.max(0, sortedHistory.length - movingAverages.ma6Requests.length);
-        
+
         for (let i = 0; i < movingAverages.ma6Requests.length; i++) {
             const monthIdx = startIdx + i;
             const month = sortedHistory[monthIdx];
             const ma6 = movingAverages.ma6Requests[i];
             const deviation = ((month.totalRequests - ma6) / ma6) * 100;
-            
+
             // Flag as anomaly if deviation > 30%
             if (Math.abs(deviation) > 30) {
                 anomalies.push({
@@ -738,7 +738,7 @@ export class UsageHistoryManager {
                 });
             }
         }
-        
+
         return anomalies;
     }
 
@@ -749,7 +749,7 @@ export class UsageHistoryManager {
         anomalies: MonthlyAnomaly[]
     ): string[] {
         const insights: string[] = [];
-        
+
         // Growth insights
         if (growthTrend.avgMonthlyGrowthRequests > 10) {
             insights.push(`⚠️ Usage is growing rapidly at ${growthTrend.avgMonthlyGrowthRequests.toFixed(1)}% per month. Consider increasing your budget.`);
@@ -758,7 +758,7 @@ export class UsageHistoryManager {
         } else if (growthTrend.trendType === 'steady') {
             insights.push(`✅ Usage is stable with minimal fluctuation (${growthTrend.avgMonthlyGrowthRequests.toFixed(1)}% avg growth).`);
         }
-        
+
         // Volatility insights
         if (growthTrend.trendType === 'volatile') {
             insights.push(`📊 Usage patterns are volatile. Consider reviewing what's driving irregular usage.`);
@@ -767,13 +767,13 @@ export class UsageHistoryManager {
         } else if (growthTrend.trendType === 'decelerating') {
             insights.push(`📉 Usage growth is slowing down, approaching stability.`);
         }
-        
+
         // Seasonality insights
         if (seasonality && seasonality.detected) {
             if (seasonality.strength === 'strong') {
                 const peakMonthNames = seasonality.peakMonths.map(m => this.getMonthName(m));
                 const troughMonthNames = seasonality.troughMonths.map(m => this.getMonthName(m));
-                
+
                 if (peakMonthNames.length > 0) {
                     insights.push(`📅 Strong seasonal pattern: Peak usage in ${peakMonthNames.join(', ')}.`);
                 }
@@ -782,7 +782,7 @@ export class UsageHistoryManager {
                 }
             }
         }
-        
+
         // Anomaly insights
         if (anomalies.length > 0) {
             const recentAnomaly = anomalies[anomalies.length - 1];
@@ -792,7 +792,7 @@ export class UsageHistoryManager {
                 insights.push(`🔔 Unusual drop in ${recentAnomaly.month}: ${Math.abs(recentAnomaly.deviation)}% below normal. ${recentAnomaly.possibleCause}`);
             }
         }
-        
+
         // Historical context
         if (sortedHistory.length >= 12) {
             const firstMonth = sortedHistory[0];
@@ -800,17 +800,17 @@ export class UsageHistoryManager {
             const totalGrowth = ((lastMonth.totalRequests - firstMonth.totalRequests) / firstMonth.totalRequests) * 100;
             insights.push(`📊 Over ${sortedHistory.length} months, usage has ${totalGrowth > 0 ? 'increased' : 'decreased'} by ${Math.abs(totalGrowth).toFixed(1)}%.`);
         }
-        
+
         return insights;
     }
 
     private assessDataQuality(sortedHistory: MonthlyAggregate[]): DataQuality {
         const monthCount = sortedHistory.length;
         const hasConsistentActivity = sortedHistory.every(m => m.daysActive >= 20);
-        
+
         let qualityScore: 'excellent' | 'good' | 'fair' | 'poor';
         let completeness: number;
-        
+
         if (monthCount >= 12 && hasConsistentActivity) {
             qualityScore = 'excellent';
             completeness = 100;
@@ -824,16 +824,16 @@ export class UsageHistoryManager {
             qualityScore = 'poor';
             completeness = (monthCount / 12) * 100;
         }
-        
+
         return {
             score: qualityScore,
             monthCount,
             completeness: Math.round(completeness),
-            recommendation: monthCount < 6 
+            recommendation: monthCount < 6
                 ? 'Collect at least 6 months of data for reliable trend analysis.'
                 : monthCount < 12
-                ? 'Collect 12+ months for seasonal pattern detection.'
-                : 'Sufficient data for comprehensive analysis.'
+                    ? 'Collect 12+ months for seasonal pattern detection.'
+                    : 'Sufficient data for comprehensive analysis.'
         };
     }
 
@@ -845,10 +845,10 @@ export class UsageHistoryManager {
         const sumY = data.reduce((sum, v) => sum + v, 0);
         const sumXY = x.reduce((sum, v, i) => sum + v * data[i], 0);
         const sumX2 = x.reduce((sum, v) => sum + v * v, 0);
-        
+
         const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
         const intercept = (sumY - slope * sumX) / n;
-        
+
         return { slope, intercept };
     }
 
