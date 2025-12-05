@@ -10,6 +10,35 @@ The format is based on Keep a Changelog and this project adheres to Semantic Ver
 <!-- Add new unreleased entries above; when releasing, these move under a version block. -->
 
 <!-- Placeholder for upcoming release notes. -->
+## [0.9.0-beta] - 2025-11-01
+### Added
+- **Hybrid Historical Storage**: 3-tier storage system for cross-month trending
+  - Detailed snapshots: Last 30 days (hourly granularity)
+  - Daily aggregates: Last 90 days (daily summaries)
+  - Monthly aggregates: Last 24 months (monthly summaries)
+  - Automatic archiving with daily maintenance checks
+- **Intelligent Multi-Month Analysis**: Comprehensive trend analysis capabilities
+  - Growth trend analysis with volatility measurement
+  - Seasonality detection (peak/trough months)
+  - Predictive analytics (next month forecasting)
+  - Anomaly detection (usage spikes/drops)
+  - Moving averages (3-month and 6-month)
+  - Auto-generated actionable insights
+  - Data quality assessment
+- **Multi-Month Analysis UI**: Rich panel display for historical insights
+  - 📈 Growth trends with color-coded indicators and significance levels
+  - 🔮 Next month predictions with confidence intervals
+  - 📅 Seasonality patterns showing peak and low months
+  - ⚠️ Anomaly detection with severity ratings
+  - 💡 Actionable insights based on comprehensive analysis
+  - Responsive design using VS Code theme colors
+  - Graceful handling of insufficient data (requires 2+ months)
+
+### Changed
+- Usage history now retains up to 2 years of data (previously 7 days)
+- Historical data automatically aggregates for efficient storage
+- Panel UI dynamically renders multi-month analysis below trend chart
+
 ## [0.8.1] - 2025-11-01
 ### Fixed
 - Development build script now generates minified webview assets to prevent test failures in CI environments.

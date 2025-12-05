@@ -71,6 +71,20 @@ function showErrorBanner(msg) {
     return Math.round(num).toLocaleString();
   }
 
+  function formatYAxisValue(value) {
+    if (!isFinite(value)) {
+      return '0';
+    }
+    const abs = Math.abs(value);
+    if (abs >= 1000) {
+      return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    }
+    if (abs >= 1) {
+      return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }
+    return value.toLocaleString(undefined, { maximumSignificantDigits: 3 });
+  }
+
   function renderSummary({ budget, spend, pct, warnAtPercent, dangerAtPercent, included, includedUsed, includedPct, view }) {
     const summary = document.getElementById('summary');
     const warnRaw = Number(warnAtPercent ?? 75);
@@ -765,6 +779,9 @@ function showErrorBanner(msg) {
   }
 
   // Usage History Rendering Functions
+  let currentTimeRange = 'all'; // Track selected time range
+  let allSnapshots = null; // Store all snapshots for filtering
+
   function renderUsageHistory(historyData) {
     try { log('[renderUsageHistory] called with: ' + JSON.stringify(historyData)); } catch { }
     const section = document.getElementById('usage-history-section');
@@ -781,6 +798,32 @@ function showErrorBanner(msg) {
     section.style.display = 'block';
 
     const { trend, recentSnapshots } = historyData;
+
+    // Store all snapshots for time range filtering
+    if (recentSnapshots && recentSnapshots.length > 0) {
+      allSnapshots = recentSnapshots;
+    }
+
+    // Set up time range selector if not already done
+    const timeRangeSelect = document.getElementById('time-range-select');
+    if (timeRangeSelect && !timeRangeSelect.dataset.initialized) {
+      timeRangeSelect.dataset.initialized = 'true';
+      timeRangeSelect.value = currentTimeRange;
+      timeRangeSelect.addEventListener('change', (e) => {
+        currentTimeRange = e.target.value;
+        // Re-render with filtered snapshots
+        if (allSnapshots && allSnapshots.length > 0) {
+          const filtered = filterSnapshotsByTimeRange(allSnapshots, currentTimeRange);
+          currentSnapshots = filtered;
+          renderTrendChart(filtered);
+
+          // Recalculate trend stats for the selected time range
+          if (filtered.length > 1) {
+            updateTrendStats(filtered);
+          }
+        }
+      });
+    }
 
     // Update trend stats
     if (trend) {
@@ -806,10 +849,93 @@ function showErrorBanner(msg) {
       confidenceEl.textContent = trend.confidence + ' confidence';
     }
 
-    // Render chart
+    // Render chart with filtered snapshots
     if (recentSnapshots && recentSnapshots.length > 1) {
-      currentSnapshots = recentSnapshots; // Store for resize handling
-      renderTrendChart(recentSnapshots);
+      const filtered = filterSnapshotsByTimeRange(recentSnapshots, currentTimeRange);
+      currentSnapshots = filtered; // Store for resize handling
+      renderTrendChart(filtered);
+    }
+
+    // Render multi-month analysis if available
+    if (historyData.multiMonthAnalysis) {
+      renderMultiMonthAnalysis(historyData.multiMonthAnalysis);
+    }
+  }
+
+  function filterSnapshotsByTimeRange(snapshots, range) {
+    if (!snapshots || snapshots.length === 0) {
+      return snapshots;
+    }
+
+    if (range === 'all') {
+      return snapshots;
+    }
+
+    const now = Date.now();
+    let cutoffTime = 0;
+
+    switch (range) {
+      case '24h':
+        cutoffTime = now - (24 * 60 * 60 * 1000);
+        break;
+      case '7d':
+        cutoffTime = now - (7 * 24 * 60 * 60 * 1000);
+        break;
+      case '30d':
+        cutoffTime = now - (30 * 24 * 60 * 60 * 1000);
+        break;
+      default:
+        return snapshots;
+    }
+
+    return snapshots.filter(s => s.timestamp >= cutoffTime);
+  }
+
+  function updateTrendStats(snapshots) {
+    if (!snapshots || snapshots.length < 2) {
+      return;
+    }
+
+    // Calculate trend from filtered snapshots
+    const sortedSnapshots = [...snapshots].sort((a, b) => a.timestamp - b.timestamp);
+    const firstSnapshot = sortedSnapshots[0];
+    const lastSnapshot = sortedSnapshots[sortedSnapshots.length - 1];
+
+    const timeRangeMs = lastSnapshot.timestamp - firstSnapshot.timestamp;
+    const timeRangeHours = timeRangeMs / (1000 * 60 * 60);
+
+    if (timeRangeHours <= 0) {
+      return;
+    }
+
+    const usageChange = lastSnapshot.totalQuantity - firstSnapshot.totalQuantity;
+    const hourlyRate = usageChange / timeRangeHours;
+
+    // Update stats
+    document.getElementById('current-rate').textContent = hourlyRate.toFixed(1);
+    document.getElementById('daily-projection').textContent = Math.round(hourlyRate * 24);
+    document.getElementById('weekly-projection').textContent = Math.round(hourlyRate * 24 * 7);
+
+    // Update trend direction
+    const directionEl = document.getElementById('trend-direction');
+    const confidenceEl = document.getElementById('trend-confidence');
+
+    const changePercent = firstSnapshot.totalQuantity > 0
+      ? (usageChange / firstSnapshot.totalQuantity) * 100
+      : 0;
+
+    if (Math.abs(changePercent) < 5) {
+      directionEl.textContent = '→ Stable';
+      directionEl.style.color = 'var(--vscode-foreground)';
+      confidenceEl.textContent = 'medium confidence';
+    } else if (changePercent > 0) {
+      directionEl.textContent = '↗ Rising';
+      directionEl.style.color = '#e51400';
+      confidenceEl.textContent = (Math.abs(changePercent) > 20 ? 'high' : 'medium') + ' confidence';
+    } else {
+      directionEl.textContent = '↘ Falling';
+      directionEl.style.color = '#2d7d46';
+      confidenceEl.textContent = (Math.abs(changePercent) > 20 ? 'high' : 'medium') + ' confidence';
     }
   }
 
@@ -945,8 +1071,8 @@ function showErrorBanner(msg) {
 
     // Y axis labels
     ctx.textAlign = 'right';
-    ctx.fillText(minQuantity.toString(), margin.left - 10, displayHeight - margin.bottom);
-    ctx.fillText(maxQuantity.toString(), margin.left - 10, margin.top + 5);
+    ctx.fillText(formatYAxisValue(minQuantity), margin.left - 10, displayHeight - margin.bottom);
+    ctx.fillText(formatYAxisValue(maxQuantity), margin.left - 10, margin.top + 5);
   }
 
   // Store current snapshots for resize handling
@@ -960,6 +1086,112 @@ function showErrorBanner(msg) {
       try { WIN.resizeTimeout = setTimeout(() => { renderTrendChart(currentSnapshots); }, 150); } catch { setTimeout(() => { renderTrendChart(currentSnapshots); }, 150); }
     }
   });
+
+  function renderMultiMonthAnalysis(analysis) {
+    try { log('[renderMultiMonthAnalysis] called with: ' + JSON.stringify(analysis)); } catch { }
+
+    const section = document.getElementById('multi-month-analysis-section');
+    if (!section) {
+      // Create the section dynamically if it doesn't exist
+      const historySection = document.getElementById('usage-history-section');
+      if (!historySection) return;
+
+      const newSection = document.createElement('div');
+      newSection.id = 'multi-month-analysis-section';
+      newSection.className = 'section';
+      newSection.style.marginTop = '20px';
+      historySection.parentElement.insertBefore(newSection, historySection.nextSibling);
+    }
+
+    const container = document.getElementById('multi-month-analysis-section');
+    if (!analysis || !analysis.dataMonths || analysis.dataMonths < 2) {
+      container.style.display = 'none';
+      return;
+    }
+
+    container.style.display = 'block';
+
+    // Build the HTML
+    let html = '<h3>Multi-Month Analysis</h3>';
+    html += '<div class="analysis-summary">';
+    html += '<p><strong>Analysis Period:</strong> ' + analysis.dataMonths + ' month' + (analysis.dataMonths > 1 ? 's' : '') + ' of data</p>';
+
+    // Growth Trends
+    if (analysis.growthTrends && analysis.growthTrends.length > 0) {
+      html += '<div class="growth-trends" style="margin-top: 15px;">';
+      html += '<h4>📈 Growth Trends</h4>';
+      analysis.growthTrends.forEach(trend => {
+        const trendIcon = trend.direction === 'increasing' ? '↗' : trend.direction === 'decreasing' ? '↘' : '→';
+        const trendColor = trend.direction === 'increasing' ? '#e51400' : trend.direction === 'decreasing' ? '#2d7d46' : 'inherit';
+        html += '<div class="trend-item" style="margin: 8px 0; padding: 8px; background: var(--vscode-editor-background); border-left: 3px solid ' + trendColor + ';">';
+        html += '<div><strong>' + trend.metric + ':</strong> <span style="color: ' + trendColor + ';">' + trendIcon + ' ' + trend.direction + '</span></div>';
+        html += '<div style="font-size: 0.9em; margin-top: 4px;">Average: ' + trend.avgValue.toFixed(1) + ' | Change: ' + (trend.changePercent > 0 ? '+' : '') + trend.changePercent.toFixed(1) + '%</div>';
+        if (trend.significance !== 'none') {
+          html += '<div style="font-size: 0.85em; opacity: 0.8; margin-top: 2px;">Significance: ' + trend.significance + '</div>';
+        }
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // Predictions
+    if (analysis.predictions && analysis.predictions.length > 0) {
+      html += '<div class="predictions" style="margin-top: 15px;">';
+      html += '<h4>🔮 Next Month Predictions</h4>';
+      analysis.predictions.forEach(pred => {
+        html += '<div class="prediction-item" style="margin: 8px 0; padding: 8px; background: var(--vscode-editor-background);">';
+        html += '<div><strong>' + pred.month + ':</strong></div>';
+        html += '<div style="font-size: 0.9em; margin-top: 4px;">Predicted usage: ' + Math.round(pred.predictedUsage) + ' ± ' + Math.round(pred.confidenceInterval) + '</div>';
+        html += '<div style="font-size: 0.85em; opacity: 0.8;">Confidence: ' + pred.confidence + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // Seasonality
+    if (analysis.seasonality && analysis.seasonality.detected) {
+      html += '<div class="seasonality" style="margin-top: 15px;">';
+      html += '<h4>📅 Seasonality Pattern</h4>';
+      html += '<div style="padding: 8px; background: var(--vscode-editor-background);">';
+      html += '<div><strong>Pattern:</strong> ' + analysis.seasonality.pattern + '</div>';
+      html += '<div style="font-size: 0.9em; margin-top: 4px;"><strong>Peak Months:</strong> ' + analysis.seasonality.peakMonths.join(', ') + '</div>';
+      html += '<div style="font-size: 0.9em; margin-top: 4px;"><strong>Low Months:</strong> ' + analysis.seasonality.lowMonths.join(', ') + '</div>';
+      html += '<div style="font-size: 0.9em; margin-top: 4px;"><strong>Variation:</strong> ' + analysis.seasonality.variance.toFixed(1) + '%</div>';
+      html += '</div>';
+      html += '</div>';
+    }
+
+    // Anomalies
+    if (analysis.anomalies && analysis.anomalies.length > 0) {
+      html += '<div class="anomalies" style="margin-top: 15px;">';
+      html += '<h4>⚠️ Anomalies Detected</h4>';
+      analysis.anomalies.forEach(anomaly => {
+        const severityColor = anomaly.severity === 'high' ? '#e51400' : anomaly.severity === 'medium' ? '#f59d00' : '#f59d00';
+        html += '<div class="anomaly-item" style="margin: 8px 0; padding: 8px; background: var(--vscode-editor-background); border-left: 3px solid ' + severityColor + ';">';
+        html += '<div><strong>' + anomaly.month + ':</strong> ' + anomaly.type + '</div>';
+        html += '<div style="font-size: 0.9em; margin-top: 4px;">Expected: ' + Math.round(anomaly.expected) + ' | Actual: ' + Math.round(anomaly.actual) + ' | Deviation: ' + (anomaly.deviation > 0 ? '+' : '') + anomaly.deviation.toFixed(1) + '%</div>';
+        html += '<div style="font-size: 0.85em; opacity: 0.8; margin-top: 2px;">Severity: ' + anomaly.severity + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    // Insights
+    if (analysis.insights && analysis.insights.length > 0) {
+      html += '<div class="insights" style="margin-top: 15px;">';
+      html += '<h4>💡 Insights</h4>';
+      html += '<ul style="margin: 8px 0; padding-left: 20px;">';
+      analysis.insights.forEach(insight => {
+        html += '<li style="margin: 4px 0; font-size: 0.95em;">' + insight + '</li>';
+      });
+      html += '</ul>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+
+    container.innerHTML = html;
+  }
 
   vscode?.postMessage({ type: 'getConfig' });
 })();
