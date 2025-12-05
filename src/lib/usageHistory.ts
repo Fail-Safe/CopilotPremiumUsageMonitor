@@ -733,7 +733,7 @@ export class UsageHistoryManager {
                     deviation: Math.round(deviation),
                     actualRequests: month.totalRequests,
                     expectedRequests: Math.round(ma6),
-                    possibleCause: this.inferAnomalyCause(deviation, month)
+                            possibleCause: this.inferAnomalyCause(deviation)
                 });
             }
         }
@@ -863,7 +863,7 @@ export class UsageHistoryManager {
         return 'low';
     }
 
-    private inferAnomalyCause(deviation: number, _month: MonthlyAggregate): string {
+    private inferAnomalyCause(deviation: number): string {
         if (Math.abs(deviation) > 50) {
             return 'Possible major event or data collection issue.';
         }
