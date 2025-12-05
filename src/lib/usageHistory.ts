@@ -532,7 +532,6 @@ export class UsageHistoryManager {
 
     private calculateGrowthTrend(sortedHistory: MonthlyAggregate[]): GrowthTrend {
         const requestsData = sortedHistory.map(m => m.totalRequests);
-        const spendData = sortedHistory.map(m => m.totalSpend);
 
         // Calculate month-over-month growth rates
         const requestsGrowthRates: number[] = [];
@@ -864,7 +863,7 @@ export class UsageHistoryManager {
         return 'low';
     }
 
-    private inferAnomalyCause(deviation: number, month: MonthlyAggregate): string {
+    private inferAnomalyCause(deviation: number, _month: MonthlyAggregate): string {
         if (Math.abs(deviation) > 50) {
             return 'Possible major event or data collection issue.';
         }
