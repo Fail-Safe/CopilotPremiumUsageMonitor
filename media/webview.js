@@ -85,6 +85,19 @@ function showErrorBanner(msg) {
     return value.toLocaleString(undefined, { maximumSignificantDigits: 3 });
   }
 
+  function escapeHtml(input) {
+    if (input == null) return '';
+    return String(input).replace(/[&<>"]/g, function (s) {
+      switch (s) {
+        case '&': return '&amp;';
+        case '<': return '&lt;';
+        case '>': return '&gt;';
+        case '"': return '&quot;';
+        default: return s;
+      }
+    });
+  }
+
   function renderSummary({ budget, spend, pct, warnAtPercent, dangerAtPercent, included, includedUsed, includedPct, view }) {
     const summary = document.getElementById('summary');
     const warnRaw = Number(warnAtPercent ?? 75);
@@ -204,7 +217,7 @@ function showErrorBanner(msg) {
         <div class="meter-section">
           <div class="meter-label meter-label-row">
             <span class="meter-label-left">Included Premium Requests: ${formatRequests(shownNumerator)} / ${formatRequests(included)} (${shownPct}%)</span>
-            <span class="limit-source-inline">${limitSourceText}</span>
+            <span class="limit-source-inline">${escapeHtml(limitSourceText)}</span>
           </div>
           <div class="meter">
             <div class="fill" style="width:${Math.min(includedPct, 100)}%; background: linear-gradient(to right, ${includedStartColor}, ${includedBarColor});"></div>
@@ -529,10 +542,10 @@ function showErrorBanner(msg) {
       el.className = 'metrics';
       el.innerHTML = `
         <div class="stats">
-          <span>Window: ${new Date(m.since).toLocaleDateString()} → ${new Date(m.until).toLocaleDateString()}</span>
-          <span>Days: ${m.days}</span>
-          <span>Engaged users (sum): ${m.engagedUsersSum}</span>
-          <span>Code suggestions (sum): ${m.codeSuggestionsSum}</span>
+          <span>Window: ${escapeHtml(new Date(m.since).toLocaleDateString())} → ${escapeHtml(new Date(m.until).toLocaleDateString())}</span>
+          <span>Days: ${escapeHtml(m.days)}</span>
+          <span>Engaged users (sum): ${escapeHtml(m.engagedUsersSum)}</span>
+          <span>Code suggestions (sum): ${escapeHtml(m.codeSuggestionsSum)}</span>
         </div>
       `;
       const summary = document.querySelector('#summary');
@@ -549,10 +562,10 @@ function showErrorBanner(msg) {
       el.innerHTML = `
         <div class="micro-sparkline" role="img" aria-label="Usage sparkline" tabindex="0"></div>
         <div class="badges" role="group" aria-label="Usage summary">
-          <span class="badge badge-primary" role="status" tabindex="0">${includedLabel}: ${included}</span>
-          <span class="badge badge-used" role="status" tabindex="0">${localize ? (localize('cpum.webview.used', 'Used')) : 'Used'}: ${total}</span>
-          <span class="badge badge-overage" role="status" tabindex="0">${localize ? (localize('cpum.webview.overage', 'Overage')) : 'Overage'}: ${overage}${overage > 0 ? ` ($${(overage * (b.pricePerPremiumRequest || 0.04)).toFixed(2)})` : ''}</span>
-          <span class="badge badge-price" role="status" tabindex="0">${priceLabel}: $${(b.pricePerPremiumRequest || 0.04).toFixed(2)}</span>
+          <span class="badge badge-primary" role="status" tabindex="0">${escapeHtml(includedLabel)}: ${escapeHtml(included)}</span>
+          <span class="badge badge-used" role="status" tabindex="0">${escapeHtml(localize ? (localize('cpum.webview.used', 'Used')) : 'Used')}: ${escapeHtml(total)}</span>
+          <span class="badge badge-overage" role="status" tabindex="0">${escapeHtml(localize ? (localize('cpum.webview.overage', 'Overage')) : 'Overage')}: ${escapeHtml(overage)}${overage > 0 ? ` ($${(overage * (b.pricePerPremiumRequest || 0.04)).toFixed(2)})` : ''}</span>
+          <span class="badge badge-price" role="status" tabindex="0">${escapeHtml(priceLabel)}: $${escapeHtml((b.pricePerPremiumRequest || 0.04).toFixed(2))}</span>
         </div>
       `;
       const summary = document.querySelector('#summary');
@@ -1167,10 +1180,9 @@ function showErrorBanner(msg) {
       html += '<h4>⚠️ Anomalies Detected</h4>';
       analysis.anomalies.forEach(anomaly => {
         const severityColor = anomaly.severity === 'high' ? '#e51400' : anomaly.severity === 'medium' ? '#f59d00' : '#f59d00';
-        html += '<div class="anomaly-item" style="margin: 8px 0; padding: 8px; background: var(--vscode-editor-background); border-left: 3px solid ' + severityColor + ';">';
-        html += '<div><strong>' + anomaly.month + ':</strong> ' + anomaly.type + '</div>';
+          html += '<div><strong>' + escapeHtml(anomaly.month) + ':</strong> ' + escapeHtml(anomaly.type) + '</div>';
         html += '<div style="font-size: 0.9em; margin-top: 4px;">Expected: ' + Math.round(anomaly.expected) + ' | Actual: ' + Math.round(anomaly.actual) + ' | Deviation: ' + (anomaly.deviation > 0 ? '+' : '') + anomaly.deviation.toFixed(1) + '%</div>';
-        html += '<div style="font-size: 0.85em; opacity: 0.8; margin-top: 2px;">Severity: ' + anomaly.severity + '</div>';
+        html += '<div style="font-size: 0.85em; opacity: 0.8; margin-top: 2px;">Severity: ' + escapeHtml(anomaly.severity) + '</div>';
         html += '</div>';
       });
       html += '</div>';
@@ -1182,7 +1194,7 @@ function showErrorBanner(msg) {
       html += '<h4>💡 Insights</h4>';
       html += '<ul style="margin: 8px 0; padding-left: 20px;">';
       analysis.insights.forEach(insight => {
-        html += '<li style="margin: 4px 0; font-size: 0.95em;">' + insight + '</li>';
+        html += '<li style="margin: 4px 0; font-size: 0.95em;">' + escapeHtml(insight) + '</li>';
       });
       html += '</ul>';
       html += '</div>';
