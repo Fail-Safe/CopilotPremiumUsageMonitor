@@ -79,7 +79,7 @@ export class UsageHistoryManager {
 
         // Check if we need to archive old data (daily check)
         if (now - history.lastArchiveCheck > ARCHIVE_CHECK_INTERVAL) {
-            await this.archiveOldData(history, now);
+            this.archiveOldData(history, now);
             history.lastArchiveCheck = now;
         }
 
@@ -279,7 +279,7 @@ export class UsageHistoryManager {
      * Archive old snapshots into daily and monthly aggregates
      * Maintains hybrid storage: detailed recent, aggregated historical
      */
-    private async archiveOldData(history: UsageHistory, now: number): Promise<void> {
+    private archiveOldData(history: UsageHistory, now: number): void {
         // 1. Aggregate snapshots older than 30 days into daily aggregates
         const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
         const oldSnapshots = history.snapshots.filter(s => s.timestamp <= thirtyDaysAgo);
