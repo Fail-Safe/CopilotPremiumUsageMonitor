@@ -13,3 +13,9 @@ coverage/*
 !coverage/coverage-badge.json
 .tsbuildinfo
 .eslintcache
+
+# CodeQL analysis database folders (generated, large, and machine-specific)
+codeql-db/
+codeql-db-js/
+codeql-db-*/
+codeql-db-js-*/
