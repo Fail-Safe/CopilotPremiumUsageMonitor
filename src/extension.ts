@@ -1795,8 +1795,8 @@ function startAutoRefresh() {
 	const ms = Math.max(5, Math.floor(minutes)) * 60 * 1000; // minimum 5 minutes
 	autoRefreshTimer = setInterval(() => { void performAutoRefresh().catch(() => { /* noop */ }); }, ms);
 	if (wasRunning) autoRefreshRestartCount++; // count restarts only (not initial start)
-	// Also perform one immediate refresh attempt non-interactively
-	void performAutoRefresh().catch(() => { /* noop */ });
+	// Also perform one immediate refresh attempt non-interactively (skip in timer-disabled test runs)
+	if (process.env.CPUM_TEST_DISABLE_TIMERS !== '1') { void performAutoRefresh().catch(() => { /* noop */ }); }
 }
 
 function restartAutoRefresh() { startAutoRefresh(); }
