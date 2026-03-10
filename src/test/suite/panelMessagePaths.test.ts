@@ -75,12 +75,16 @@ suite('Panel message paths batch1', () => {
             api._test_invokeWebviewMessage({ type: 'openExternal', url: 'ftp://example.com/resource' });
             api._test_invokeWebviewMessage({ type: 'openExternal', url: 'file:///etc/passwd' });
             api._test_invokeWebviewMessage({ type: 'openExternal', url: 'mailto:test@example.com' });
+            api._test_invokeWebviewMessage({ type: 'openExternal', url: 'data:text/html,<script>alert(1)</script>' });
+            api._test_invokeWebviewMessage({ type: 'openExternal', url: 'vbscript:alert(1)' });
             await new Promise(r => setTimeout(r, 50));
-            assert.ok(opened.some(u => u.startsWith('https://example.com')), 'Expected https URL opened');
-            assert.ok(!opened.some(u => u.startsWith('javascript:')), 'javascript scheme should be blocked');
-            assert.ok(!opened.some(u => u.startsWith('ftp:')), 'ftp scheme should be blocked');
-            assert.ok(!opened.some(u => u.startsWith('file:')), 'file scheme should be blocked');
-            assert.ok(!opened.some(u => u.startsWith('mailto:')), 'mailto scheme should be blocked');
+            // Parse opened URIs and assert using explicit allowed/disallowed sets
+            const openedSchemes = new Set(opened.map((u) => vscode.Uri.parse(u).scheme));
+            const allowed = new Set(['http', 'https']);
+            const disallowed = new Set(['javascript', 'vbscript', 'data', 'ftp', 'file', 'mailto']);
+            // There should be at least one allowed URL and no disallowed ones opened
+            assert.ok([...openedSchemes].some(s => allowed.has(s)), 'Expected at least one http(s) URL opened');
+            for (const d of disallowed) { assert.ok(!openedSchemes.has(d), `Scheme ${d} should be blocked`); }
         } finally {
             (vscode.env as any).openExternal = orig;
         }

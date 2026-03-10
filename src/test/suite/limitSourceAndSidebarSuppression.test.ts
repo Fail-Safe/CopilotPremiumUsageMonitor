@@ -5,7 +5,7 @@ import * as path from 'path';
 import { getTestGlobal, TestElement, TestDocument, TestWindow, TestVSCodeApi } from '../testGlobals';
 
 // Minimal DOM stubs for evaluating webview.js
-class Elem implements TestElement { id?: string; tag: string; style: any = {}; children: Elem[] = []; parent?: Elem; textContent = ''; innerHTML = ''; classList = { _s: new Set<string>(), add: (c: string) => this.classList._s.add(c), remove: (c: string) => this.classList._s.delete(c), contains: (c: string) => this.classList._s.has(c) }; _listeners: Record<string, (...args: any[]) => void> = {}; constructor(tag: string) { this.tag = tag; } appendChild(e: Elem) { e.parent = this; this.children.push(e); if (e.id) byId.set(e.id, e); return e; } prepend(e: Elem) { e.parent = this; this.children.unshift(e); if (e.id) byId.set(e.id, e); return e; } querySelector(sel: string): Elem | null { if (sel.startsWith('#')) return (byId.get(sel.slice(1)) || null) as any; if (sel.includes('.')) { const cls = sel.split('.').filter(Boolean); return walk(root, el => cls.every(c => el.classList._s.has(c))) || null; } return null; } remove() { if (this.parent) this.parent.children = this.parent.children.filter(c => c !== this); } addEventListener(ev: string, fn: (...args: any[]) => void) { this._listeners[ev] = fn; } }
+class Elem implements TestElement { id?: string; tag: string; style: any = {}; children: Elem[] = []; parent?: Elem; textContent = ''; innerHTML = ''; classList = { _s: new Set<string>(), add: (c: string) => this.classList._s.add(c), remove: (c: string) => this.classList._s.delete(c), contains: (c: string) => this.classList._s.has(c) }; _listeners: Record<string, (...args: any[]) => void> = {}; _attrs: Record<string, string> = {}; constructor(tag: string) { this.tag = tag; } appendChild(e: Elem) { e.parent = this; this.children.push(e); if (e.id) byId.set(e.id, e); return e; } prepend(e: Elem) { e.parent = this; this.children.unshift(e); if (e.id) byId.set(e.id, e); return e; } querySelector(sel: string): Elem | null { if (sel.startsWith('#')) return (byId.get(sel.slice(1)) || null) as any; if (sel.includes('.')) { const cls = sel.split('.').filter(Boolean); return walk(root, el => cls.every(c => el.classList._s.has(c))) || null; } return null; } remove() { if (this.parent) this.parent.children = this.parent.children.filter(c => c !== this); } addEventListener(ev: string, fn: (...args: any[]) => void) { this._listeners[ev] = fn; } setAttribute(name: string, value: string) { this._attrs[name] = String(value); } getAttribute(name: string) { return this._attrs[name] ?? null; } }
 const byId = new Map<string, Elem>();
 const root = new Elem('body');
 const controls = new Elem('div'); controls.classList.add('controls'); root.appendChild(controls);
@@ -76,7 +76,9 @@ suite('Limit source states and sidebar suppression', () => {
             }
         });
         const summary = root.querySelector('#summary') as Elem | null;
-        const hasInline = !!(summary && /Included limit:\s*Billing data/i.test(summary.innerHTML || summary.textContent));
+        assert.ok(summary, 'Expected #summary to exist');
+        const snap = summary && (summary.getAttribute ? (summary.getAttribute('data-summary-snapshot') || summary.textContent) : summary.textContent);
+        const hasInline = !!(snap && /Included limit:\s*Billing data/i.test(snap || ''));
         assert.ok(hasInline, `Expected inline 'Included limit: Billing data' in webview summary.`);
     });
 

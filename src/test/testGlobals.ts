@@ -26,6 +26,8 @@ export interface TestElement {
     remove(): void;
     querySelector(selector: string): TestElement | null;
     addEventListener(ev: string, fn: (...args: any[]) => void): void;
+    setAttribute?(name: string, value: string): void;
+    getAttribute?(name: string): string | null;
 }
 
 /**

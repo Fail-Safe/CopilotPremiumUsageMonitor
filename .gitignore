@@ -19,3 +19,6 @@ codeql-db/
 codeql-db-js/
 codeql-db-*/
 codeql-db-js-*/
+
+# CodeQL results (analysis output)
+codeql-results*.sarif

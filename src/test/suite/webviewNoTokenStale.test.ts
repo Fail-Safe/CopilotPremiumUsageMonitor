@@ -13,6 +13,7 @@ class Elem implements TestElement {
     textContent: string = '';
     innerHTML: string = '';
     _listeners: Record<string, (...args: any[]) => void> = {};
+    _attrs: Record<string, string> = {};
     classList = {
         _s: new Set<string>(),
         add: (c: string) => { this.classList._s.add(c); },
@@ -33,6 +34,8 @@ class Elem implements TestElement {
         return null;
     }
     addEventListener(ev: string, fn: (...args: any[]) => void) { this._listeners[ev] = fn; }
+    setAttribute(name: string, value: string) { this._attrs[name] = value; }
+    getAttribute(name: string) { return this._attrs[name] ?? null; }
 }
 
 const elementsById = new Map<string, Elem>();

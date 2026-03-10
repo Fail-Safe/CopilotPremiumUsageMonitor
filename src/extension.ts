@@ -458,7 +458,17 @@ class UsagePanel {
 					break;
 				}
 				case 'signIn': { await UsagePanel.ensureGitHubSession(); break; }
-				case 'openExternal': { if (typeof message.url === 'string' && message.url.startsWith('http')) { try { await vscode.env.openExternal(vscode.Uri.parse(message.url)); } catch { /* noop */ } } break; }
+				case 'openExternal': {
+					if (typeof message.url === 'string') {
+						try {
+							const uri = vscode.Uri.parse(message.url);
+							if (uri.scheme === 'http' || uri.scheme === 'https') {
+								try { await vscode.env.openExternal(uri); } catch { /* noop */ }
+							}
+						} catch { /* noop */ }
+					}
+					break;
+				}
 				case 'setTokenSecure':
 					await vscode.commands.executeCommand('copilotPremiumUsageMonitor.setTokenSecure');
 					break;
@@ -1740,8 +1750,13 @@ function updateStatusBar() {
 		try {
 			const lastError = extCtx?.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
 			if (lastError) {
-				const sanitized = lastError.replace(/`/g, '\u0060');
-				md.appendMarkdown(`\n\n$(warning) **${localize('cpum.statusbar.stale', 'Data may be stale')}**: ${sanitized}`);
+				// Append the last error as plain text (escaped by appendText) so that we don't risk
+				// incorrectly sanitized markdown. Using appendText prevents interpretation of
+				// backticks or other markdown characters.
+				md.appendMarkdown(`\n\n$(warning) **${localize('cpum.statusbar.stale', 'Data may be stale')}**: `);
+				try {
+					md.appendText(String(lastError));
+				} catch { /* noop */ }
 			} else if (noTokenStale) {
 				md.appendMarkdown(`\n\n$(warning) ${localize('cpum.statusbar.noToken', 'Awaiting secure token for personal spend updates.')}`);
 			}
