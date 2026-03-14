@@ -47,22 +47,14 @@ suite('Panel message paths batch2', () => {
         await new Promise(r => setTimeout(r, 200));
         api._test_closePanel?.();
         await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
-        // Wait for panel to fully initialize before resetting messages (increased for CI)
-        await new Promise(r => setTimeout(r, 300));
-        // Reset messages AFTER panel is open to clear any init messages
-        api._test_resetPostedMessages();
-        // Give a small delay before invoking getConfig
-        await new Promise(r => setTimeout(r, 50));
-        api._test_invokeWebviewMessage({ type: 'getConfig' });
-        // Poll up to ~2500ms for replay message (increased for Linux CI timing variability)
-        let warn: any | undefined; let attempts = 0;
-        while (attempts < 50) { // 50 * 50ms = 2500ms
-            const msgs = api._test_getPostedMessages();
-            warn = msgs.find((m: any) => m.type === 'iconOverrideWarning');
-            if (warn) break;
-            await new Promise(r => setTimeout(r, 50));
-            attempts++;
-        }
+        // Allow panel to start initializing before triggering config refresh
+        await new Promise(r => setTimeout(r, 150));
+        // _test_forceConfig resets messages, then awaits postFreshConfig and getConfig dispatch
+        // directly — avoiding the fire-and-forget timing race with _test_invokeWebviewMessage
+        // where secrets.get() can be slow on CI Linux and cause the dispatch to exceed the poll window.
+        await api._test_forceConfig?.();
+        const msgs = api._test_getPostedMessages();
+        const warn = msgs.find((m: any) => m.type === 'iconOverrideWarning');
         assert.ok(warn && /override/i.test(warn.message), 'Expected icon override warning replay');
     });
 

@@ -49,6 +49,10 @@ suite('calculateCompleteUsageData', () => {
             ]);
             mgr.getDataSize = async () => ({ snapshots: 2, estimatedKB: 0.5 });
 
+            // Re-seed spend immediately before calling to guard against background auto-refresh race
+            // (activation fires performAutoRefresh() immediately; if a VS Code GitHub session exists it
+            // can overwrite currentSpend during the earlier 150ms wait window).
+            await api._test_setSpendAndUpdate?.(3, 10);
             const data = await api.calculateCompleteUsageData?.();
             assert.ok(data, 'calculateCompleteUsageData returned null');
             // Base assertions
