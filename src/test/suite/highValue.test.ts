@@ -21,6 +21,9 @@ suite('High value behaviors', () => {
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('useThemeStatusColor', false, vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('warnAtPercent', 50, vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('dangerAtPercent', 75, vscode.ConfigurationTarget.Global);
+        // Wait for VS Code 1.103.x config write-read propagation — dangerAtPercent=0 from test 6 persists
+        // across test:activation → test:coverage:full runs; without this delay updateStatusBar() reads stale 0.
+        await new Promise(r => setTimeout(r, 100));
         await api._test_setSpendAndUpdate(20, 100); // 20%
         api._test_forceStatusBarUpdate();
         const normalColor = api._test_getStatusBarColor();
