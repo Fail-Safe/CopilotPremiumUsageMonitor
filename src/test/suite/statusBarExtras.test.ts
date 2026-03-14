@@ -20,6 +20,10 @@ suite('Status bar extra branches', () => {
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('includedPremiumRequests', 0, vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('selectedPlanId', '', vscode.ConfigurationTarget.Global);
         await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('useThemeStatusColor', false, vscode.ConfigurationTarget.Global);
+        // Wait for config writes to propagate before updateStatusBar reads them.
+        // VS Code 1.103.x can lag between cfg.update() resolving and getConfiguration() reflecting
+        // the new value — same race fixed in lastAttemptGate.test.ts (commit 09bbe98).
+        await new Promise(r => setTimeout(r, 100));
         await api._test_setSpendAndUpdate(10, 100); // 10%
         api._test_setLastSyncTimestamp(Date.now());
         await new Promise(r => setTimeout(r, 80));
