@@ -1,6 +1,5 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
-import test from 'node:test';
 
 const EXT_ID = 'fail-safe.copilot-premium-usage-monitor';
 
@@ -30,116 +29,118 @@ async function cleanupAll() {
     await vscode.workspace.getConfiguration('copilotPremiumUsageMonitor').update('token', '', vscode.ConfigurationTarget.Global);
 }
 
-void test.beforeEach(async () => {
-    await cleanupAll();
-});
+suite('Token migration', () => {
+    setup(async () => {
+        await cleanupAll();
+    });
 
-void test('token migration writes secret storage copy (keeps legacy)', async () => {
-    const testToken = 'test_pat_123';
-    await activateWithConfig({ token: testToken });
-    const mod = await getExtensionModule();
-    // Poll for migration results to avoid timing-dependent failures in CI
-    async function waitForToken(expected: string, timeout = 2000) {
-        const start = Date.now();
-        while (true) {
-            const info = await (mod as any)._test_readTokenInfo();
-            if (info && info.token === expected) return info;
-            if (Date.now() - start > timeout) throw new Error('Timed out waiting for migrated token');
+    test('token migration writes secret storage copy (keeps legacy)', async () => {
+        const testToken = 'test_pat_123';
+        await activateWithConfig({ token: testToken });
+        const mod = await getExtensionModule();
+        // Poll for migration results to avoid timing-dependent failures in CI
+        async function waitForToken(expected: string, timeout = 2000) {
+            const start = Date.now();
+            while (true) {
+                const info = await (mod as any)._test_readTokenInfo();
+                if (info && info.token === expected) return info;
+                if (Date.now() - start > timeout) throw new Error('Timed out waiting for migrated token');
+                await new Promise(r => setTimeout(r, 50));
+            }
+        }
+        const info = await waitForToken(testToken);
+        assert.ok(info, 'No token info');
+        assert.strictEqual(info.token, testToken, 'Token mismatch');
+        assert.ok(['settings', 'secretStorage'].includes(info.source), 'Unexpected source');
+    });
+
+    test('forced migration removes legacy when requested', async () => {
+        const testToken = 'test_pat_remove';
+        await activateWithConfig({ token: testToken });
+        const mod = await getExtensionModule();
+        await (mod as any)._test_forceMigration(true);
+        const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+        const legacyVal = cfg.get('token');
+        const legacy = typeof legacyVal === 'string' ? legacyVal.trim() : legacyVal;
+        assert.ok(!legacy, 'Legacy token should have been cleared');
+        const info = await (mod as any)._test_readTokenInfo();
+        assert.strictEqual(info.token, testToken, 'Secret storage value missing');
+    });
+
+    test('setTokenSecure command stores token in secret storage and clears legacy', async () => {
+        await Promise.resolve();
+        const legacy = 'legacy_token_keep';
+        await activateWithConfig({ token: legacy });
+        const ext = vscode.extensions.getExtension<any>(EXT_ID)!;
+        await ext.activate();
+        // simulate user input by stubbing showInputBox
+        const orig = (vscode.window.showInputBox as any);
+        (vscode.window.showInputBox as any) = () => Promise.resolve('new_secure_token_ABC');
+        try {
+            await vscode.commands.executeCommand('copilotPremiumUsageMonitor.setTokenSecure');
+        } finally {
+            (vscode.window.showInputBox as any) = orig;
+        }
+        const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+        const legacyAfterVal = cfg.get('token');
+        const legacyAfter = typeof legacyAfterVal === 'string' ? legacyAfterVal.trim() : legacyAfterVal;
+        assert.ok(!legacyAfter, 'Legacy token should be cleared by setTokenSecure');
+        const mod = await getExtensionModule();
+        const info = await (mod as any)._test_readTokenInfo();
+        assert.strictEqual(info.token, 'new_secure_token_ABC');
+        assert.strictEqual(info.source, 'secretStorage');
+    });
+
+    test('clearTokenSecure command removes secure token', async () => {
+        await Promise.resolve();
+        const ext = vscode.extensions.getExtension<any>(EXT_ID)!;
+        await ext.activate();
+        // first set token
+        const orig = (vscode.window.showInputBox as any);
+        (vscode.window.showInputBox as any) = () => Promise.resolve('temp_token_123');
+        try {
+            await vscode.commands.executeCommand('copilotPremiumUsageMonitor.setTokenSecure');
+        } finally {
+            (vscode.window.showInputBox as any) = orig;
+        }
+        // stub quick pick confirmation
+        const origQP = (vscode.window.showQuickPick as any);
+        (vscode.window.showQuickPick as any) = () => Promise.resolve('Yes, clear stored token');
+        try {
+            await vscode.commands.executeCommand('copilotPremiumUsageMonitor.clearTokenSecure');
+        } finally {
+            (vscode.window.showQuickPick as any) = origQP;
+        }
+        const mod = await getExtensionModule();
+        const info = await (mod as any)._test_readTokenInfo();
+        assert.ok(!info || !info.token, 'Token should be cleared');
+    });
+
+    test('residual plaintext hint appears when secret and settings both have token', async () => {
+        await Promise.resolve();
+        const plain = 'plain_token_residual_123';
+        await activateWithConfig({ token: plain });
+        const ext = vscode.extensions.getExtension<any>(EXT_ID)!;
+        const api = await ext.activate();
+        const extensionMod = await getExtensionModule();
+        await (extensionMod as any)._test_forceMigration(false);
+        // Poll for secret presence before proceeding to panel open (reduce flakiness)
+        for (let i = 0; i < 20; i++) {
+            const extensionMod2 = await getExtensionModule();
+            const info1 = await (extensionMod2 as any)._test_readTokenInfo();
+            if (info1.token === plain) break;
             await new Promise(r => setTimeout(r, 50));
         }
-    }
-    const info = await waitForToken(testToken);
-    assert.ok(info, 'No token info');
-    assert.strictEqual(info.token, testToken, 'Token mismatch');
-    assert.ok(['settings', 'secretStorage'].includes(info.source), 'Unexpected source');
-});
-
-void test('forced migration removes legacy when requested', async () => {
-    const testToken = 'test_pat_remove';
-    await activateWithConfig({ token: testToken });
-    const mod = await getExtensionModule();
-    await (mod as any)._test_forceMigration(true);
-    const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-    const legacyVal = cfg.get('token');
-    const legacy = typeof legacyVal === 'string' ? legacyVal.trim() : legacyVal;
-    assert.ok(!legacy, 'Legacy token should have been cleared');
-    const info = await (mod as any)._test_readTokenInfo();
-    assert.strictEqual(info.token, testToken, 'Secret storage value missing');
-});
-
-void test('setTokenSecure command stores token in secret storage and clears legacy', async () => {
-    await Promise.resolve();
-    const legacy = 'legacy_token_keep';
-    await activateWithConfig({ token: legacy });
-    const ext = vscode.extensions.getExtension<any>(EXT_ID)!;
-    await ext.activate();
-    // simulate user input by stubbing showInputBox
-    const orig = (vscode.window.showInputBox as any);
-    (vscode.window.showInputBox as any) = () => Promise.resolve('new_secure_token_ABC');
-    try {
-        await vscode.commands.executeCommand('copilotPremiumUsageMonitor.setTokenSecure');
-    } finally {
-        (vscode.window.showInputBox as any) = orig;
-    }
-    const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-    const legacyAfterVal = cfg.get('token');
-    const legacyAfter = typeof legacyAfterVal === 'string' ? legacyAfterVal.trim() : legacyAfterVal;
-    assert.ok(!legacyAfter, 'Legacy token should be cleared by setTokenSecure');
-    const mod = await getExtensionModule();
-    const info = await (mod as any)._test_readTokenInfo();
-    assert.strictEqual(info.token, 'new_secure_token_ABC');
-    assert.strictEqual(info.source, 'secretStorage');
-});
-
-void test('clearTokenSecure command removes secure token', async () => {
-    await Promise.resolve();
-    const ext = vscode.extensions.getExtension<any>(EXT_ID)!;
-    await ext.activate();
-    // first set token
-    const orig = (vscode.window.showInputBox as any);
-    (vscode.window.showInputBox as any) = () => Promise.resolve('temp_token_123');
-    try {
-        await vscode.commands.executeCommand('copilotPremiumUsageMonitor.setTokenSecure');
-    } finally {
-        (vscode.window.showInputBox as any) = orig;
-    }
-    // stub quick pick confirmation
-    const origQP = (vscode.window.showQuickPick as any);
-    (vscode.window.showQuickPick as any) = () => Promise.resolve('Yes, clear stored token');
-    try {
-        await vscode.commands.executeCommand('copilotPremiumUsageMonitor.clearTokenSecure');
-    } finally {
-        (vscode.window.showQuickPick as any) = origQP;
-    }
-    const mod = await getExtensionModule();
-    const info = await (mod as any)._test_readTokenInfo();
-    assert.ok(!info || !info.token, 'Token should be cleared');
-});
-
-void test('residual plaintext hint appears when secret and settings both have token', async () => {
-    await Promise.resolve();
-    const plain = 'plain_token_residual_123';
-    await activateWithConfig({ token: plain });
-    const ext = vscode.extensions.getExtension<any>(EXT_ID)!;
-    const api = await ext.activate();
-    const extensionMod = await getExtensionModule();
-    await (extensionMod as any)._test_forceMigration(false);
-    // Poll for secret presence before proceeding to panel open (reduce flakiness)
-    for (let i = 0; i < 20; i++) {
-        const extensionMod = await getExtensionModule();
-        const info1 = await (extensionMod as any)._test_readTokenInfo();
-        if (info1.token === plain) break;
-        await new Promise(r => setTimeout(r, 50));
-    }
-    await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
-    api._test_resetPostedMessages();
-    // Poll for migration hint up to ~1.2s
-    let found = false;
-    for (let i = 0; i < 12 && !found; i++) {
-        api._test_invokeWebviewMessage({ type: 'getConfig' });
-        await new Promise(r => setTimeout(r, 100));
-        const msgs = api._test_getPostedMessages();
-        found = msgs.some((m: any) => m.type === 'migrationHint' && (/Plaintext PAT remains/i.test(m.text || m.message || '') || /Clear Plaintext/i.test(m.buttonLabel || '')));
-    }
-    assert.ok(found, 'Expected residual plaintext migrationHint with Clear Plaintext action');
+        await vscode.commands.executeCommand('copilotPremiumUsageMonitor.openPanel');
+        api._test_resetPostedMessages();
+        // Poll for migration hint up to ~1.2s
+        let found = false;
+        for (let i = 0; i < 12 && !found; i++) {
+            api._test_invokeWebviewMessage({ type: 'getConfig' });
+            await new Promise(r => setTimeout(r, 100));
+            const msgs = api._test_getPostedMessages();
+            found = msgs.some((m: any) => m.type === 'migrationHint' && (/Plaintext PAT remains/i.test(m.text || m.message || '') || /Clear Plaintext/i.test(m.buttonLabel || '')));
+        }
+        assert.ok(found, 'Expected residual plaintext migrationHint with Clear Plaintext action');
+    });
 });
