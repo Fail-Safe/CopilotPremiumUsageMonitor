@@ -85,7 +85,7 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: Cache ESLint
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .eslintcache
           key: eslint-${{ runner.os }}-${{ matrix.node }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**/*.ts') }}
@@ -99,7 +99,7 @@ jobs:
         run: npm run vscode:prepublish
 
       - name: Cache TS build info
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .tsbuildinfo
           key: tsc-${{ runner.os }}-${{ matrix.node }}-${{ hashFiles('tsconfig.json') }}-${{ hashFiles('src/**/*.ts') }}
@@ -107,7 +107,7 @@ jobs:
             tsc-${{ runner.os }}-${{ matrix.node }}-
 
       - name: Cache VS Code Test Download
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .vscode-test
           key: vscode-test-${{ runner.os }}-${{ matrix.node }}-${{ env.VSCODE_VERSION }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('package.json') }}
@@ -210,7 +210,7 @@ jobs:
         run: npm run vscode:prepublish
 
       - name: Cache VS Code Test Download (reuse)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .vscode-test
           key: vscode-test-${{ runner.os }}-20x-${{ env.VSCODE_VERSION }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('package.json') }}
