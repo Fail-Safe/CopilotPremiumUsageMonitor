@@ -305,6 +305,11 @@
     "typescript": "^5.9.3",
     "node-html-parser": "^6.1.0"
   },
+  "overrides": {
+    "serialize-javascript": ">=7.0.3",
+    "diff": ">=8.0.3",
+    "yauzl": ">=3.2.1"
+  },
   "dependencies": {
     "@octokit/rest": "^22.0.1",
     "vscode-nls": "^5.2.0"
