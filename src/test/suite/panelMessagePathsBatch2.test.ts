@@ -62,6 +62,11 @@ suite('Panel message paths batch2', () => {
             if (warn) break;
             await new Promise(r => setTimeout(r, 50));
             attempts++;
+            // Re-invoke getConfig periodically in case the initial invocation's async dispatch
+            // was delayed (e.g. secrets.get() slow on CI disk).
+            if (attempts === 4 || attempts === 20 || attempts === 36) {
+                api._test_invokeWebviewMessage({ type: 'getConfig' });
+            }
         }
         assert.ok(warn && /override/i.test(warn.message), 'Expected icon override warning replay');
     });

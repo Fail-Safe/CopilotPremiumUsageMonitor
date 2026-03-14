@@ -22,10 +22,15 @@ suite('simulate plan selected status', () => {
         // Reset posted messages and set a lastBilling snapshot with totalQuantity 88
         try { api._test_resetPostedMessages?.(); } catch { /* noop */ }
         try { await api._test_setLastBilling?.({ totalQuantity: 88, totalIncludedQuantity: 88, pricePerPremiumRequest: 0.04 }); } catch { /* noop */ }
+        // Extra delay to let globalState write propagate before the first status bar read
+        // (VS Code 1.103.x has a write-read race where globalState.get() may return stale data
+        // immediately after globalState.update() resolves — same pattern as cfg.update() race).
+        await new Promise(r => setTimeout(r, 100));
 
         // Force status bar update and capture tooltip markdown
         try { api._test_forceStatusBarUpdate?.(); } catch { /* noop */ }
-        // Poll for tooltip markdown (allow up to 2s) to account for async timing
+        // Poll for tooltip markdown (allow up to 2s) — break only when billing details are present
+        // to avoid accepting a partial tooltip generated before lastBilling propagated.
         const start = Date.now();
         let md: string | undefined;
         let statusText: string | undefined;
@@ -34,7 +39,7 @@ suite('simulate plan selected status', () => {
             await new Promise(r => setTimeout(r, 100));
             statusText = api._test_getStatusBarText?.();
             md = api._test_getLastTooltipMarkdown?.() as string | undefined;
-            if (statusText && md) break;
+            if (statusText && md && md.includes('Included Premium Requests')) break;
         }
         assert.ok(statusText, `Expected status bar text to be present; got: ${statusText}`);
         if (md) {
