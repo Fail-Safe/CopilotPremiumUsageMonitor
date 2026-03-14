@@ -1,7 +1,7 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getTestGlobal, TestElement, TestDocument, TestWindow, TestVSCodeApi } from '../testGlobals';
+import { getTestGlobal, backupGlobals, restoreGlobals, TestElement, TestDocument, TestWindow, TestVSCodeApi } from '../testGlobals';
 
 // Minimal element / DOM stubs sufficient for webview.js logic
 class Elem implements TestElement {
@@ -72,22 +72,22 @@ const windowStub: TestWindow = {
     removeEventListener: () => { /* noop */ }
 };
 
-const testGlobal = getTestGlobal();
-testGlobal.document = documentStub;
-testGlobal.window = windowStub;
-testGlobal.console = console;
-testGlobal.acquireVsCodeApi = (): TestVSCodeApi => ({ postMessage: () => { /* noop */ } });
-
 suite('Webview stale state (no token)', () => {
     test('adds summary-error and unavailable message', () => {
+        const backup = backupGlobals();
+        const testGlobal = getTestGlobal();
+        testGlobal.document = documentStub;
+        testGlobal.window = windowStub;
+        testGlobal.console = console;
+        testGlobal.acquireVsCodeApi = (): TestVSCodeApi => ({ postMessage: () => { /* noop */ } });
         const webviewJsPath = path.resolve(__dirname, '../../../media/webview.js');
         const code = fs.readFileSync(webviewJsPath, 'utf8');
         // Evaluate webview script (registers message handler). Ensure fresh handler each run.
         messageHandler = undefined;
         eval(code);
         // Fallback to hook when addEventListener path is bypassed in Node test env
-        if (!messageHandler && testGlobal.window && (testGlobal.window as any).__cpumMessageHandler) {
-            messageHandler = (testGlobal.window as any).__cpumMessageHandler;
+        if (!messageHandler && (windowStub as any).__cpumMessageHandler) {
+            messageHandler = (windowStub as any).__cpumMessageHandler;
         }
         assert.ok(messageHandler, 'Expected message handler registered');
         const config = { mode: 'personal', org: '', hasSecurePat: false, residualPlaintext: false, noTokenStaleMessage: 'Awaiting secure token for personal spend updates.' };
@@ -98,5 +98,6 @@ suite('Webview stale state (no token)', () => {
         const unavailable = (summaryEl.children || []).find((c: any) => c.id === 'summary-unavailable');
         assert.ok(unavailable, 'Expected summary-unavailable element');
         assert.match(unavailable.textContent, /Awaiting secure token/i, 'Expected awaiting token message');
+        restoreGlobals(backup);
     });
 });
