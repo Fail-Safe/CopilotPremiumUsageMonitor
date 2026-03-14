@@ -24,6 +24,7 @@ let logAutoOpened = false; // track automatic log opening per session
 let usageHistoryManager: UsageHistoryManager | undefined; // usage history tracking
 // (Removed unused lastIconOverrideWarningMessage to satisfy lint)
 let _test_iconOverrideWarningCache: string | undefined; // module-level cache to avoid globalState read-back race
+let _test_lastBillingCache: { value: any; set: boolean } | undefined; // module-level cache for lastBilling override
 let _test_lastStatusBarText: string | undefined; // test cache
 let _test_postedMessages: any[] = []; // test capture of webview postMessage payloads
 let _test_helpCount = 0; // test: number of help invocations
@@ -1210,7 +1211,7 @@ export function activate(context: vscode.ExtensionContext) {
 			// Also trigger an explicit getConfig to guarantee selectedPlanId and error replay paths are covered
 			try { if (UsagePanel.currentPanel) { await (UsagePanel.currentPanel as any)._dispatch?.({ type: 'getConfig' }); } } catch { /* noop */ }
 		},
-		_test_setLastBilling: async (b: any) => { try { if (extCtx) { await extCtx.globalState.update('copilotPremiumUsageMonitor.lastBilling', b); await extCtx.globalState.update('copilotPremiumUsageMonitor._test_lastBillingOverride', b); } } catch { /* noop */ } },
+		_test_setLastBilling: async (b: any) => { _test_lastBillingCache = { value: b, set: true }; try { if (extCtx) { await extCtx.globalState.update('copilotPremiumUsageMonitor.lastBilling', b); await extCtx.globalState.update('copilotPremiumUsageMonitor._test_lastBillingOverride', b); } } catch { /* noop */ } },
 	};
 }
 // Test-only export to drive migration logic
@@ -1413,7 +1414,7 @@ export function calculateCurrentUsageData() {
 	if (!extCtx) return null;
 
 	const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
-	const lastBilling = extCtx.globalState.get<any>('copilotPremiumUsageMonitor.lastBilling');
+	const lastBilling = _test_lastBillingCache?.set ? _test_lastBillingCache.value : extCtx.globalState.get<any>('copilotPremiumUsageMonitor.lastBilling');
 	const spend = normalizeUsageQuantity(extCtx.globalState.get('copilotPremiumUsageMonitor.currentSpend') ?? 0, 2);
 	const budget = normalizeUsageQuantity(config.get('budget') ?? 0, 2);
 
