@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import { parse as parseHtml } from 'node-html-parser';
 
 // Release-time script to fetch Copilot plans table and generate a small JSON file
 // Usage: node ./scripts/update-plan-data.mjs
@@ -14,30 +16,27 @@ async function fetchHtml(url) {
 }
 
 function extractTableRows(html) {
-    // Very small and forgiving HTML extraction: find the header cells and the "Premium requests" row
-    const headerMatch = html.match(/<thead>[\s\S]*?<tr>([\s\S]*?)<\/tr>[\s\S]*?<\/thead>/i);
+    const root = parseHtml(html);
     const headers = [];
-    if (headerMatch) {
-        const ths = headerMatch[1].match(/<th[^>]*>([\s\S]*?)<\/th>/gi) || [];
+    const thead = root.querySelector('thead');
+    if (thead) {
+        const ths = thead.querySelectorAll('th');
         for (const th of ths) {
-            const t = th.replace(/<[^>]+>/g, '').trim();
+            const t = th.text.trim();
             if (t) headers.push(t);
         }
     }
-    const tbodyMatch = html.match(/<tbody>[\s\S]*?<tr>([\s\S]*?)<\/tr>[\s\S]*?<\/tbody>/i);
-    const rowsHtml = [];
-    if (tbodyMatch) {
-        // get all rows
-        const rows = html.match(/<tbody>[\s\S]*?<tr>[\s\S]*?<\/tr>[\s\S]*?<\/tbody>/i);
-    }
-    // Find the row that starts with <th>Premium requests</th>
-    const premiumRowMatch = html.match(/<tr>\s*<th[^>]*>\s*Premium requests\s*<\/th>([\s\S]*?)<\/tr>/i);
     const premiumCells = [];
-    if (premiumRowMatch) {
-        const tds = premiumRowMatch[1].match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
-        for (const td of tds) {
-            const text = td.replace(/<[^>]+>/g, '').trim();
-            premiumCells.push(text);
+    // Find the row that starts with <th>Premium requests</th>
+    const trs = root.querySelectorAll('tr');
+    for (const tr of trs) {
+        const firstTh = tr.querySelector('th');
+        if (firstTh && firstTh.text.trim().toLowerCase() === 'premium requests') {
+            const tds = tr.querySelectorAll('td');
+            for (const td of tds) {
+                premiumCells.push(td.text.trim());
+            }
+            break;
         }
     }
     return { headers, premiumCells };
@@ -113,4 +112,11 @@ async function main() {
     }
 }
 
-main();
+// Only execute main when invoked directly (not when imported for testing)
+const thisFile = fileURLToPath(import.meta.url);
+if (process.argv[1] && thisFile === process.argv[1]) {
+    main();
+}
+
+// Export helpers for unit testing and reuse
+export { extractTableRows, parseNumberFromCell };

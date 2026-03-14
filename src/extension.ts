@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { computeUsageBar, pickIcon, formatRelativeTime } from './lib/format';
-import { computeIncludedOverageSummary, calculateIncludedQuantity, type BillingUsageItem } from './lib/usageUtils';
+import { computeIncludedOverageSummary, calculateIncludedQuantity, normalizeUsageQuantity, type BillingUsageItem } from './lib/usageUtils';
 import { readStoredToken, migrateSettingToken, writeToken, clearToken, getSecretStorageKey } from './secrets';
 import { deriveTokenState, recordMigrationKeep, recordSecureSetAndLegacyCleared, resetAllTokenStateWindows, debugSnapshot, recordSecureCleared } from './lib/tokenState';
 import { setSecretsLogger, logSecrets } from './secrets_log';
@@ -390,25 +390,32 @@ class UsagePanel {
 								const userPrice = Number(cfg.get('pricePerPremiumRequest') ?? 0.04) || 0.04;
 
 								// Use the new helper function for consistent plan priority logic
-								const effectiveIncluded = getEffectiveIncludedRequests(cfg, billing.totalIncludedQuantity);
+								const effectiveIncludedRaw = getEffectiveIncludedRequests(cfg, billing.totalIncludedQuantity);
+								const normalizedTotalQuantity = normalizeUsageQuantity(billing.totalQuantity);
+								const normalizedBillingIncluded = normalizeUsageQuantity(billing.totalIncludedQuantity);
+								const normalizedEffectiveIncluded = normalizeUsageQuantity(effectiveIncludedRaw);
+								const normalizedOverageQuantity = normalizeUsageQuantity(Math.max(0, normalizedTotalQuantity - normalizedEffectiveIncluded));
+								const normalizedNetAmount = normalizeUsageQuantity(billing.totalNetAmount, 2);
 
 								const billingWithOverrides = {
 									...billing,
+									totalQuantity: normalizedTotalQuantity,
+									totalNetAmount: normalizedNetAmount,
 									pricePerPremiumRequest: userPrice,
 									userConfiguredIncluded: userIncluded > 0,
 									userConfiguredPrice: userPrice !== 0.04,
-									totalIncludedQuantity: effectiveIncluded,
-									totalOverageQuantity: Math.max(0, billing.totalQuantity - effectiveIncluded)
+									totalIncludedQuantity: normalizedEffectiveIncluded,
+									totalOverageQuantity: normalizedOverageQuantity
 								};
 								// Persist a compact billing snapshot using RAW billing included. We recompute the effective included
 								// (custom > plan > billing) at render time to avoid baking overrides into the snapshot and causing
 								// precedence drift across refreshes.
 								try {
 									await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastBilling', {
-										totalQuantity: billing.totalQuantity,
-										totalIncludedQuantity: billing.totalIncludedQuantity,
+										totalQuantity: normalizedTotalQuantity,
+										totalIncludedQuantity: normalizedBillingIncluded,
 										// Keep the (possibly user-configured) price so overage cost displays remain accurate
-										pricePerPremiumRequest: userPrice || 0.04
+										pricePerPremiumRequest: normalizeUsageQuantity(userPrice || 0.04, 4)
 									});
 								} catch { /* noop */ }
 								this.post({ type: 'billing', billing: billingWithOverrides });
@@ -418,12 +425,18 @@ class UsagePanel {
 									const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
 									const userPrice = Number(cfg.get('pricePerPremiumRequest') ?? 0.04) || 0.04;
 									await extCtx!.globalState.update('copilotPremiumUsageMonitor.lastBilling', {
-										totalQuantity: billing.totalQuantity,
-										totalIncludedQuantity: billing.totalIncludedQuantity,
-										pricePerPremiumRequest: userPrice
+										totalQuantity: normalizeUsageQuantity(billing.totalQuantity),
+										totalIncludedQuantity: normalizeUsageQuantity(billing.totalIncludedQuantity),
+										pricePerPremiumRequest: normalizeUsageQuantity(userPrice, 4)
 									});
 								} catch { /* noop */ }
-								this.post({ type: 'billing', billing });
+								const sanitizedFallback = {
+									...billing,
+									totalQuantity: normalizeUsageQuantity(billing.totalQuantity),
+									totalIncludedQuantity: normalizeUsageQuantity(billing.totalIncludedQuantity),
+									totalNetAmount: normalizeUsageQuantity(billing.totalNetAmount, 2)
+								};
+								this.post({ type: 'billing', billing: sanitizedFallback });
 							}
 							this.post({ type: 'clearError' });
 							void this.update();
@@ -445,7 +458,17 @@ class UsagePanel {
 					break;
 				}
 				case 'signIn': { await UsagePanel.ensureGitHubSession(); break; }
-				case 'openExternal': { if (typeof message.url === 'string' && message.url.startsWith('http')) { try { await vscode.env.openExternal(vscode.Uri.parse(message.url)); } catch { /* noop */ } } break; }
+				case 'openExternal': {
+					if (typeof message.url === 'string') {
+						try {
+							const uri = vscode.Uri.parse(message.url);
+							if (uri.scheme === 'http' || uri.scheme === 'https') {
+								try { await vscode.env.openExternal(uri); } catch { /* noop */ }
+							}
+						} catch { /* noop */ }
+					}
+					break;
+				}
 				case 'setTokenSecure':
 					await vscode.commands.executeCommand('copilotPremiumUsageMonitor.setTokenSecure');
 					break;
@@ -503,7 +526,18 @@ class UsagePanel {
 <h2>${localize('cpum.title', 'Copilot Premium Usage Monitor')}</h2>
 <div id="summary"></div>
 <div id="usage-history-section" style="display: none;">
-<h3>Usage History & Trends</h3>
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+<h3 style="margin: 0;">Usage History & Trends</h3>
+<div style="display: flex; align-items: center; gap: 8px;">
+<label for="time-range-select" style="font-size: 12px; opacity: 0.9;">Time range:</label>
+<select id="time-range-select" style="padding: 4px 8px; font-size: 12px;">
+<option value="24h">Last 24 hours</option>
+<option value="7d">Last 7 days</option>
+<option value="30d">Last 30 days</option>
+<option value="all" selected>All time</option>
+</select>
+</div>
+</div>
 <div id="usage-charts">
 <div class="chart-container">
 <h4>Request Rate Trend</h4>
@@ -557,12 +591,21 @@ class UsagePanel {
 	}
 	private async maybeShowFirstRunNotice() { const key = 'copilotPremiumUsageMonitor.firstRunShown'; const shown = this.globalState.get<boolean>(key); const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor'); const disabled = cfg.get<boolean>('disableFirstRunTips') === true || this.globalState.get<boolean>('copilotPremiumUsageMonitor.firstRunDisabled') === true; if (shown || disabled) return; this.post({ type: 'notice', severity: 'info', text: localize('cpum.firstRun.tip', "Tip: Org metrics use your GitHub sign-in (read:org). Personal spend needs a PAT with 'Plan: read-only'. Avoid syncing your PAT. Click Help to learn more."), helpAction: true, dismissText: localize('cpum.firstRun.dismiss', "Don't show again"), learnMoreText: localize('cpum.firstRun.learnMore', 'Learn more'), openBudgetsText: localize('cpum.firstRun.openBudgets', 'Open budgets'), budgetsUrl: 'https://github.com/settings/billing/budgets' }); await this.globalState.update(key, true); }
 	private async setSpend(v: number) {
-		await this.globalState.update('copilotPremiumUsageMonitor.currentSpend', v);
+		const normalizedSpend = normalizeUsageQuantity(v, 2);
+		await this.globalState.update('copilotPremiumUsageMonitor.currentSpend', normalizedSpend);
 		updateStatusBar();
 		// Collect usage history snapshot if appropriate
 		void this.maybeCollectUsageSnapshot();
 	}
-	private getSpend(): number { const stored = this.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend'); if (typeof stored === 'number') return stored; const cfg = vscode.workspace.getConfiguration(); const legacy = cfg.get<number>('copilotPremiumMonitor.currentSpend', 0); return legacy ?? 0; }
+	private getSpend(): number {
+		const stored = this.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend');
+		if (typeof stored === 'number') {
+			return normalizeUsageQuantity(stored, 2);
+		}
+		const cfg = vscode.workspace.getConfiguration();
+		const legacy = cfg.get<number>('copilotPremiumMonitor.currentSpend', 0);
+		return normalizeUsageQuantity(legacy ?? 0, 2);
+	}
 	private async update() {
 		// Check if this is the first initialization
 		const isFirstInit = !this.htmlInitialized;
@@ -641,8 +684,8 @@ class UsagePanel {
 			// Calculate included usage using plan data priority
 			const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
 			const includedFromBilling = Number(lastBilling.totalIncludedQuantity || 0);
-			const included = getEffectiveIncludedRequests(config, includedFromBilling);
-			const totalQuantity = Number(lastBilling.totalQuantity || 0);
+			const included = normalizeUsageQuantity(getEffectiveIncludedRequests(config, includedFromBilling));
+			const totalQuantity = normalizeUsageQuantity(lastBilling.totalQuantity);
 			const includedUsed = totalQuantity;
 
 			try { getLog().appendLine(`[Usage History] Collecting snapshot: ${JSON.stringify({ totalQuantity, includedUsed, spend, included, selectedPlanId: config.get('selectedPlanId'), userIncluded: config.get('includedPremiumRequests'), billingIncluded: includedFromBilling })}`); } catch { /* noop */ }
@@ -651,7 +694,7 @@ class UsagePanel {
 			await usageHistoryManager.collectSnapshot({
 				totalQuantity,
 				includedUsed,
-				spend,
+				spend: normalizeUsageQuantity(spend, 2),
 				included
 			});
 		} catch (error) {
@@ -673,8 +716,8 @@ class UsagePanel {
 			// Calculate included usage using plan data priority
 			const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
 			const includedFromBilling = Number(lastBilling.totalIncludedQuantity || 0);
-			const included = getEffectiveIncludedRequests(config, includedFromBilling);
-			const totalQuantity = Number(lastBilling.totalQuantity || 0);
+			const included = normalizeUsageQuantity(getEffectiveIncludedRequests(config, includedFromBilling));
+			const totalQuantity = normalizeUsageQuantity(lastBilling.totalQuantity);
 			const includedUsed = totalQuantity;
 
 			try { getLog().appendLine(`[Usage History Force] Collecting snapshot: ${JSON.stringify({ totalQuantity, includedUsed, spend, included, selectedPlanId: config.get('selectedPlanId'), userIncluded: config.get('includedPremiumRequests'), billingIncluded: includedFromBilling })}`); } catch { /* noop */ }
@@ -683,7 +726,7 @@ class UsagePanel {
 			await usageHistoryManager.collectSnapshot({
 				totalQuantity,
 				includedUsed,
-				spend,
+				spend: normalizeUsageQuantity(spend, 2),
 				included
 			});
 		} catch (error) {
@@ -1370,17 +1413,18 @@ export function calculateCurrentUsageData() {
 
 	const config = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
 	const lastBilling = extCtx.globalState.get<any>('copilotPremiumUsageMonitor.lastBilling');
-	const spend = Number(extCtx.globalState.get('copilotPremiumUsageMonitor.currentSpend') ?? 0);
-	const budget = Number(config.get('budget') ?? 0);
+	const spend = normalizeUsageQuantity(extCtx.globalState.get('copilotPremiumUsageMonitor.currentSpend') ?? 0, 2);
+	const budget = normalizeUsageQuantity(config.get('budget') ?? 0, 2);
 
 	// Calculate included requests data using consistent logic
 	const includedFromBilling = lastBilling ? Number(lastBilling.totalIncludedQuantity || 0) : 0;
-	const included = getEffectiveIncludedRequests(config, includedFromBilling);
-	const totalQuantity = lastBilling ? Number(lastBilling.totalQuantity || 0) : 0;
+	const includedEffective = getEffectiveIncludedRequests(config, normalizeUsageQuantity(includedFromBilling));
+	const included = normalizeUsageQuantity(includedEffective);
+	const totalQuantity = normalizeUsageQuantity(lastBilling ? Number(lastBilling.totalQuantity || 0) : 0);
 	// Show the actual used count even when it exceeds the included allotment so UI can display e.g. 134/50.
 	// Percent stays clamped to 100 so the meter doesn't overflow.
 	const includedUsed = totalQuantity;
-	const includedPct = included > 0 ? Math.min(100, Math.round((totalQuantity / included) * 100)) : 0;
+	const includedPct = included > 0 ? Math.min(100, Math.round((includedUsed / included) * 100)) : 0;
 
 	// Calculate budget data
 	const budgetPct = budget > 0 ? Math.min(100, Math.round((spend / budget) * 100)) : 0;
@@ -1425,12 +1469,20 @@ export async function calculateCompleteUsageData() {
 			const recentCount = Array.isArray(recentSnapshots) ? recentSnapshots.length : 0;
 			// Use recent 48h snapshot count for consistency with UI/tests
 			const dataSize = { snapshots: recentCount, estimatedKB: (dataSizeRaw as any)?.estimatedKB ?? 0 } as any;
-			// Debug logging removed after stabilizing tests; keep calculation deterministic without noisy logs.
+
+			// Get multi-month analysis if sufficient data exists
+			let multiMonthAnalysis = null;
+			try {
+				multiMonthAnalysis = await Promise.resolve(usageHistoryManager.analyzeMultiMonthTrends());
+			} catch (error) {
+				console.error('Failed to get multi-month analysis:', error);
+			}
 
 			historyData = {
 				trend,
 				recentSnapshots,
-				dataSize
+				dataSize,
+				multiMonthAnalysis
 			};
 		} catch (error) {
 			console.error('Failed to get usage history data:', error);
@@ -1454,8 +1506,8 @@ function updateStatusBar() {
 		}
 		const cfg = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
 		const base = calculateCurrentUsageData();
-		const budget = Number(cfg.get('budget') ?? 0);
-		const spend = extCtx.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend') ?? 0;
+		const budget = normalizeUsageQuantity(cfg.get('budget') ?? 0, 2);
+		const spend = normalizeUsageQuantity(extCtx.globalState.get<number>('copilotPremiumUsageMonitor.currentSpend') ?? 0, 2);
 		// Two-phase meter:
 		// Phase 1: Included usage grows until includedUsed >= included (if included > 0)
 		// Phase 2: Reset meter to show spend vs budget growth for overage period
@@ -1698,8 +1750,13 @@ function updateStatusBar() {
 		try {
 			const lastError = extCtx?.globalState.get<string>('copilotPremiumUsageMonitor.lastSyncError');
 			if (lastError) {
-				const sanitized = lastError.replace(/`/g, '\u0060');
-				md.appendMarkdown(`\n\n$(warning) **${localize('cpum.statusbar.stale', 'Data may be stale')}**: ${sanitized}`);
+				// Append the last error as plain text (escaped by appendText) so that we don't risk
+				// incorrectly sanitized markdown. Using appendText prevents interpretation of
+				// backticks or other markdown characters.
+				md.appendMarkdown(`\n\n$(warning) **${localize('cpum.statusbar.stale', 'Data may be stale')}**: `);
+				try {
+					md.appendText(String(lastError));
+				} catch { /* noop */ }
 			} else if (noTokenStale) {
 				md.appendMarkdown(`\n\n$(warning) ${localize('cpum.statusbar.noToken', 'Awaiting secure token for personal spend updates.')}`);
 			}
@@ -1738,8 +1795,8 @@ function startAutoRefresh() {
 	const ms = Math.max(5, Math.floor(minutes)) * 60 * 1000; // minimum 5 minutes
 	autoRefreshTimer = setInterval(() => { void performAutoRefresh().catch(() => { /* noop */ }); }, ms);
 	if (wasRunning) autoRefreshRestartCount++; // count restarts only (not initial start)
-	// Also perform one immediate refresh attempt non-interactively
-	void performAutoRefresh().catch(() => { /* noop */ });
+	// Also perform one immediate refresh attempt non-interactively (skip in timer-disabled test runs)
+	if (process.env.CPUM_TEST_DISABLE_TIMERS !== '1') { void performAutoRefresh().catch(() => { /* noop */ }); }
 }
 
 function restartAutoRefresh() { startAutoRefresh(); }

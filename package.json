@@ -35,6 +35,7 @@
     "vscode": "^1.104.0",
     "node": ">=20.0.0"
   },
+
   "categories": [
     "Other"
   ],
@@ -301,7 +302,8 @@
     "mocha": "^11.7.4",
     "nyc": "^17.1.0",
     "rimraf": "^6.1.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "node-html-parser": "^6.1.0"
   },
   "dependencies": {
     "@octokit/rest": "^22.0.1",

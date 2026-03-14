@@ -38,7 +38,17 @@ void test('token migration writes secret storage copy (keeps legacy)', async () 
     const testToken = 'test_pat_123';
     await activateWithConfig({ token: testToken });
     const mod = await getExtensionModule();
-    const info = await (mod as any)._test_readTokenInfo();
+    // Poll for migration results to avoid timing-dependent failures in CI
+    async function waitForToken(expected: string, timeout = 2000) {
+        const start = Date.now();
+        while (true) {
+            const info = await (mod as any)._test_readTokenInfo();
+            if (info && info.token === expected) return info;
+            if (Date.now() - start > timeout) throw new Error('Timed out waiting for migrated token');
+            await new Promise(r => setTimeout(r, 50));
+        }
+    }
+    const info = await waitForToken(testToken);
     assert.ok(info, 'No token info');
     assert.strictEqual(info.token, testToken, 'Token mismatch');
     assert.ok(['settings', 'secretStorage'].includes(info.source), 'Unexpected source');

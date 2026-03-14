@@ -1,3 +1,4 @@
+import { normalizeUsageQuantity } from './usageUtils';
 export type UsageCompleteData = {
     budget: number;
     spend: number;
@@ -39,11 +40,11 @@ export type UsageViewModel = {
 };
 
 export function buildUsageViewModel(complete: UsageCompleteData, lastBilling?: LastBillingSnapshot): UsageViewModel {
-    const included = Number(complete.included || 0);
-    const used = Number(complete.includedUsed || 0);
-    const shown = included > 0 ? Math.min(used, included) : 0;
+    const included = normalizeUsageQuantity(complete.included);
+    const used = normalizeUsageQuantity(complete.includedUsed);
+    const shown = normalizeUsageQuantity(included > 0 ? Math.min(used, included) : 0);
     const pct = included > 0 ? Math.min(100, Math.max(0, Math.round((used / included) * 100))) : 0;
-    const overageQty = Math.max(0, used - included);
+    const overageQty = normalizeUsageQuantity(Math.max(0, used - included));
     const price = lastBilling && typeof lastBilling.pricePerPremiumRequest === 'number' ? lastBilling.pricePerPremiumRequest : undefined;
     const overageCost = price !== undefined ? Number((overageQty * price).toFixed(2)) : undefined;
     const warn = Number(complete.warnAt || 0);
@@ -52,8 +53,8 @@ export function buildUsageViewModel(complete: UsageCompleteData, lastBilling?: L
     const includedColor = thresholdColor(pct, warn, danger);
 
     return {
-        budget: Number(complete.budget || 0),
-        spend: Number(complete.spend || 0),
+        budget: normalizeUsageQuantity(complete.budget, 2),
+        spend: normalizeUsageQuantity(complete.spend, 2),
         budgetPct: Number(complete.budgetPct || 0),
         progressColor: complete.progressColor,
         warnAt: Number(complete.warnAt || 0),

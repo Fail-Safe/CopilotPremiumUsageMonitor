@@ -56,31 +56,53 @@ if (bumpType === 'auto') {
     }
 }
 
-const pkg = readJson(pkgPath);
-const oldVersion = pkg.version;
-const newVersion = bumpSemver(oldVersion, bumpType);
-pkg.version = newVersion;
-writeJson(pkgPath, pkg);
+function performBump() {
+    const pkg = readJson(pkgPath);
+    const oldVersion = pkg.version;
+    const newVersion = bumpSemver(oldVersion, bumpType);
+    pkg.version = newVersion;
+    writeJson(pkgPath, pkg);
 
-// Update CHANGELOG: move Unreleased content under new version if there are any bullet lines
-let changelog = fs.readFileSync(changelogPath, 'utf8');
-const today = new Date().toISOString().split('T')[0];
-// Capture content between ## [Unreleased] and next ## [
-const unreleasedRegex = /(## \[Unreleased\]([\s\S]*?))(?:\n## \[|$)/;
-const match = unreleasedRegex.exec(changelog);
-if (match) {
-    const fullUnreleasedBlock = match[1];
-    const inner = match[2];
-    const hasEntries = /(^|\n)\s*-\s+/.test(inner.replace(/<!--([\s\S]*?)-->/g, ''));
-    if (hasEntries) {
-        const insertionHeader = `## [${newVersion}] - ${today}`;
-        const idx = changelog.indexOf(fullUnreleasedBlock) + fullUnreleasedBlock.length;
-        changelog = changelog.slice(0, idx) + '\n' + insertionHeader + '\n' + inner.replace(/^\n+/, '') + changelog.slice(idx);
+    // Update CHANGELOG: move Unreleased content under new version if there are any bullet lines
+    let changelog = fs.readFileSync(changelogPath, 'utf8');
+    const today = new Date().toISOString().split('T')[0];
+    // Capture content between ## [Unreleased] and next ## [
+    const unreleasedRegex = /(## \[Unreleased\]([\s\S]*?))(?:\n## \[|$)/;
+    const match = unreleasedRegex.exec(changelog);
+    if (match) {
+        const fullUnreleasedBlock = match[1];
+        const inner = match[2];
+        // Escape any '<' characters in changelog paragraphs to ensure sequences
+        // like '<scr' + 'ipt' cannot be re-introduced into the changelog entry.
+        // This avoids the risk associated with ad-hoc tag-removal regexes and
+        // ensures the inserted content remains valid Markdown without executing
+        // or rendering undesirable HTML elements.
+        const sanitizedInner = sanitizeChangelogInner(inner);
+        const hasEntries = /(^|\n)\s*-\s+/.test(sanitizedInner);
+        if (hasEntries) {
+            const insertionHeader = `## [${newVersion}] - ${today}`;
+            const idx = changelog.indexOf(fullUnreleasedBlock) + fullUnreleasedBlock.length;
+            changelog = changelog.slice(0, idx) + '\n' + insertionHeader + '\n' + sanitizedInner.replace(/^\n+/, '') + changelog.slice(idx);
+        }
     }
-}
-fs.writeFileSync(changelogPath, changelog);
+    fs.writeFileSync(changelogPath, changelog);
 
-console.log(`Bumped version: ${oldVersion} -> ${newVersion}`);
-console.log('version=' + newVersion);
-// Emit chosen bump type (useful when auto)
-console.log('bumpType=' + bumpType);
+    console.log(`Bumped version: ${oldVersion} -> ${newVersion}`);
+    console.log('version=' + newVersion);
+    // Emit chosen bump type (useful when auto)
+    console.log('bumpType=' + bumpType);
+}
+
+// Export sanitizer for unit testing
+export function sanitizeChangelogInner(raw) {
+    if (!raw) return '';
+    // Escape '<' so any possible '<scr' + 'ipt' like sequences are rendered harmless in Markdown
+    return String(raw).replace(/</g, '&lt;');
+}
+
+// Only run performBump when executed directly rather than being imported
+import { fileURLToPath } from 'url';
+const thisFile = fileURLToPath(import.meta.url);
+if (process.argv[1] && thisFile === process.argv[1]) {
+    performBump();
+}

@@ -17,6 +17,7 @@ suite('Panel overage indicator', () => {
             textContent: string = '';
             innerHTML: string = '';
             _listeners: Record<string, (...args: any[]) => void> = {};
+            _attrs: Record<string, string> = {};
             classList = {
                 _s: new Set<string>(),
                 add: (c: string) => { this.classList._s.add(c); },
@@ -32,6 +33,8 @@ suite('Panel overage indicator', () => {
                 return null;
             }
             addEventListener(ev: string, fn: (...args: any[]) => void) { this._listeners[ev] = fn; }
+            setAttribute(name: string, value: string) { this._attrs[name] = value; }
+            getAttribute(name: string) { return this._attrs[name] ?? null; }
         }
         const elementsById = new Map<string, Elem>();
         function register(el: Elem) { if (el.id) elementsById.set(el.id, el); }
@@ -79,7 +82,8 @@ suite('Panel overage indicator', () => {
                 }
             };
             messageHandler!(msg);
-            assert.ok(!/\(\+84 over\)/.test(summary.innerHTML), 'Overage label should be removed from summary');
+            const snap = summary.getAttribute ? (summary.getAttribute('data-summary-snapshot') || summary.textContent) : summary.textContent;
+            assert.ok(!/\(\+84 over\)/.test(snap || ''), 'Overage label should be removed from summary');
         } finally {
             // Restore globals
             restoreGlobals(globalsBackup);
