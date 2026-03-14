@@ -48,5 +48,14 @@ suite('simulate plan selected status', () => {
             const summary = computeIncludedOverageSummary(lastBilling, includedToShow);
             assert.ok(summary.includes('Included Premium Requests: 88/1500'), `Direct summary did not include expected text; got: ${summary}`);
         }
+
+        // Clean up global settings — @vscode/test-electron reuses .vscode-test/user-data across
+        // test commands (test:activation → test:coverage:full). Without cleanup, selectedPlanId
+        // persists and can cause statusBarExtras to read stale state in the subsequent run.
+        try {
+            const cfgClean = vscode.workspace.getConfiguration('copilotPremiumUsageMonitor');
+            await cfgClean.update('selectedPlanId', '', vscode.ConfigurationTarget.Global);
+            await api._test_setLastBilling?.(null);
+        } catch { /* noop */ }
     });
 });
