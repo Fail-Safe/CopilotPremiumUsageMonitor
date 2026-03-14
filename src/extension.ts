@@ -23,6 +23,7 @@ let _logChannel: vscode.OutputChannel | undefined;
 let logAutoOpened = false; // track automatic log opening per session
 let usageHistoryManager: UsageHistoryManager | undefined; // usage history tracking
 // (Removed unused lastIconOverrideWarningMessage to satisfy lint)
+let _test_iconOverrideWarningCache: string | undefined; // module-level cache to avoid globalState read-back race
 let _test_lastStatusBarText: string | undefined; // test cache
 let _test_postedMessages: any[] = []; // test capture of webview postMessage payloads
 let _test_helpCount = 0; // test: number of help invocations
@@ -494,7 +495,7 @@ class UsagePanel {
 				}
 			} catch { /* noop */ }
 			try {
-				const iconWarn = this.globalState.get<string>('copilotPremiumUsageMonitor.iconOverrideWarning');
+				const iconWarn = _test_iconOverrideWarningCache ?? this.globalState.get<string>('copilotPremiumUsageMonitor.iconOverrideWarning');
 				if (iconWarn) {
 					const warnMsg = { type: 'iconOverrideWarning', message: iconWarn };
 					// Push to test buffer first to avoid losing the message if postMessage throws
@@ -1615,7 +1616,10 @@ function updateStatusBar() {
 			if (vm) {
 				// Include the explicit summary string expected by tests and screen readers
 				try {
-					const usedForSummary = base ? Number(base.includedUsed || 0) : Number(lbAny.totalQuantity || 0) || 0;
+					// Prefer lbAny.totalQuantity (respects _test_lastBillingOverride) over base.includedUsed;
+				// calculateCurrentUsageData reads lastBilling directly (no override), so can be stale
+				// when _test_setLastBilling was called just before a concurrent globalState flush.
+				const usedForSummary = (lbAny.totalQuantity != null) ? Number(lbAny.totalQuantity || 0) : (base ? Number(base.includedUsed || 0) : 0);
 					// Prefer raw included from lastBilling snapshot to avoid baking override twice; fallback to vm.included
 					const rawIncluded = lbAny.totalIncludedQuantity;
 					const includedForSummary = (typeof rawIncluded === 'number' && rawIncluded >= 0) ? rawIncluded : vm.included;
@@ -2116,7 +2120,7 @@ export function _test_getPostedMessages() { return _test_postedMessages.slice();
 export function _test_resetPostedMessages() { _test_postedMessages = []; }
 export async function _test_resetFirstRun() { try { await extCtx?.globalState.update('copilotPremiumUsageMonitor.firstRunShown', false); await extCtx?.globalState.update('copilotPremiumUsageMonitor.firstRunDisabled', false); } catch { /* noop */ } }
 export function _test_closePanel() { try { (UsagePanel as any).currentPanel?.dispose(); } catch { /* noop */ } }
-export async function _test_setIconOverrideWarning(msg: string | undefined) { try { await extCtx?.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', msg); } catch { /* noop */ } }
+export async function _test_setIconOverrideWarning(msg: string | undefined) { _test_iconOverrideWarningCache = msg; try { await extCtx?.globalState.update('copilotPremiumUsageMonitor.iconOverrideWarning', msg); } catch { /* noop */ } }
 
 // Internal test-only helpers to drive refresh logic directly (bypassing webview message path)
 export async function _test_refreshPersonal() {
