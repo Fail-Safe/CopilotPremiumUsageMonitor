@@ -31,7 +31,7 @@ jobs:
       matrix: ${{ steps.set.outputs.matrix }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Extract current & previous versions
@@ -70,7 +70,7 @@ jobs:
       matrix: ${{ fromJSON(needs.determine-versions.outputs.matrix) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Set VS Code version env
         run: echo "VSCODE_VERSION=${{ matrix.vscode }}" >> $GITHUB_ENV
@@ -188,7 +188,7 @@ jobs:
       VSCODE_VERSION: ${{ needs.determine-versions.outputs.current }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
